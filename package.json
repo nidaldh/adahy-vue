@@ -1,0 +1,53 @@
+{
+  "name": "animal-sales-vue",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "test:unit": "vitest run",
+    "analyze": "vite build && npx vite-bundle-analyzer dist/stats.html",
+    "lint": "vue-tsc --noEmit",
+    "type-check": "vue-tsc --noEmit",
+    "build:prod": "NODE_ENV=production vue-tsc -b && vite build",
+    "deploy": "./scripts/deploy.sh",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:rules": "firebase deploy --only database",
+    "migrate:data": "node scripts/migrate-firebase-data.js",
+    "serve:prod": "vite preview --host",
+    "firebase:init": "firebase init",
+    "firebase:login": "firebase login",
+    "firebase:logout": "firebase logout"
+  },
+  "dependencies": {
+    "@tanstack/vue-virtual": "^3.13.9",
+    "@types/uuid": "^10.0.0",
+    "@vueuse/core": "^13.3.0",
+    "@vueuse/firebase": "^13.3.0",
+    "firebase": "^10.14.1",
+    "pinia": "^2.3.1",
+    "uuid": "^11.1.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.1",
+    "vuefire": "^3.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vitest/coverage-v8": "^3.1.4",
+    "@vue/test-utils": "^2.4.6",
+    "@vue/tsconfig": "^0.7.0",
+    "happy-dom": "^17.5.6",
+    "rollup-plugin-visualizer": "^6.0.1",
+    "sass": "^1.89.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4",
+    "vue-tsc": "^2.2.8"
+  }
+}

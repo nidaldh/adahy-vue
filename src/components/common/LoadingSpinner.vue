@@ -1,0 +1,20 @@
+<template>
+  <div class="loading-spinner"></div>
+</template>
+
+<style scoped>
+.loading-spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-left-color: #09f; /* Or your app's primary color */
+  animation: spin 1s ease infinite;
+  display: inline-block; /* Or block with margin auto for centering */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>
