@@ -13,8 +13,9 @@ const mockCustomers: Customer[] = [
     phone: '+966501234567',
     balance: 1500,
     animals: [],
+    payments: [],
     totalAmount: 2000,
-    totalPayments: 500,
+    totalPaidNIS: 500,
     createdAt: Date.now()
   },
   {
@@ -23,8 +24,9 @@ const mockCustomers: Customer[] = [
     phone: '+966509876543',
     balance: 2000,
     animals: [],
+    payments: [],
     totalAmount: 3000,
-    totalPayments: 1000,
+    totalPaidNIS: 1000,
     createdAt: Date.now()
   }
 ];

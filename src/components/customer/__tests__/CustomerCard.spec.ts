@@ -14,15 +14,18 @@ const createMockCustomer = (): Customer => ({
       id: 'animal1',
       type: 'Cow',
       number: '001',
+      count: 1,
       weight: 500,
-      price: 3,
+      pricePerUnit: 3,
       total: 1500,
       status: 'حي',
-      compositeKey: 'Cow_001'
+      compositeKey: 'Cow_001',
+      createdAt: Date.now()
     }
   ],
   totalAmount: 1500,
-  totalPayments: 500,
+  payments: [],
+  totalPaidNIS: 500,
   balance: 1000
 })
 

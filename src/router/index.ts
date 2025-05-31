@@ -38,6 +38,12 @@ const routes: Array<RouteRecordRaw> = [
                 meta: { requiresAuth: true },
             },
             {
+                path: 'customer-relationships',
+                name: 'CustomerRelationships',
+                component: () => import('@/views/CustomerAnimalRelationshipPage.vue'),
+                meta: { requiresAuth: true },
+            },
+            {
                 path: 'payments',
                 redirect: { name: 'PaymentList' },
             },

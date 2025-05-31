@@ -131,7 +131,7 @@ const fetchSummaryData = async () => {
 };
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR' }).format(value);
+  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(value);
 };
 
 const formatDate = (dateValue: Date | string | undefined, includeTime = false) => {

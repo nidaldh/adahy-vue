@@ -1,6 +1,6 @@
 <template>
   <div class="payment-form-container" dir="rtl">
-    <h3><i class="fas fa-plus-circle"></i> إضافة دفعة جديدة</h3>
+    <!-- Removed duplicate title: <h3><i class="fas fa-plus-circle"></i> إضافة دفعة جديدة</h3> -->
     <form @submit.prevent="handleSubmit">
       <loading-spinner :loading="customersStore.loading" />
       <error-message v-if="formError" :message="formError" />
@@ -14,58 +14,98 @@
           </option>
         </select>
         <div v-if="selectedCustomerDetails && selectedCustomerDetails.balance !== undefined" class="customer-balance-info">
-          الرصيد الحالي للعميل: {{ formatCurrency(selectedCustomerDetails.balance, 'NIS') }}
-          <button type="button" v-if="selectedCustomerDetails.balance > 0" @click="prefillAmountWithBalance" class="btn btn-link btn-sm">
-            دفع كامل الرصيد
+          <span v-if="selectedCustomerDetails.balance > 0">
+            الدين الحالي على العميل: {{ formatCurrency(selectedCustomerDetails.balance, 'NIS') }} (دين على العميل)
+          </span>
+          <span v-else-if="selectedCustomerDetails.balance < 0">
+            الرصيد الزائد للعميل: {{ formatCurrency(Math.abs(selectedCustomerDetails.balance), 'NIS') }} (رصيد زائد للعميل)
+          </span>
+          <span v-else>
+            الرصيد: {{ formatCurrency(0, 'NIS') }} (خالص)
+          </span>
+          <button type="button" v-if="selectedCustomerDetails.balance > 0 && paymentEntries.length > 0" @click="prefillAmountWithBalance" class="btn btn-link btn-sm" style="margin-right: 5px;">
+            دفع كامل الدين (لأول بند)
           </button>
         </div>
       </div>
 
-      <!-- Multi-currency payment fields -->
-      <div class="form-group">
-        <label for="paymentAmount">المبلغ</label>
-        <input type="number" id="paymentAmount" v-model.number="paymentFields.amount" required step="any" placeholder="0.00" />
+      <!-- Payment Entries -->
+      <div v-for="(entry, index) in paymentEntries" :key="entry.id" class="payment-entry-row">
+        <h4><i class="fas fa-money-bill-wave"></i> بند الدفعة #{{ index + 1 }}</h4>
+        <div class="form-row">
+          <div class="form-group amount-group">
+            <label :for="'paymentAmount-' + entry.id">المبلغ</label>
+            <input type="number" :id="'paymentAmount-' + entry.id" v-model.number="entry.amount" required step="any" placeholder="0.00" />
+          </div>
+
+          <div class="form-group currency-group">
+            <label :for="'paymentCurrency-' + entry.id">العملة</label>
+            <select :id="'paymentCurrency-' + entry.id" v-model="entry.currency" @change="handleCurrencyChange(entry)">
+              <option value="NIS">شيكل (NIS)</option>
+              <option value="JOD">دينار أردني (JOD)</option>
+              <option value="USD">دولار أمريكي (USD)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group nis-equivalent-group" v-if="entry.currency === 'JOD' || entry.currency === 'USD'">
+          <label :for="'paymentNisEquivalent-' + entry.id">المقابل بالشيكل <span class="required-star">*</span></label>
+          <input type="number" :id="'paymentNisEquivalent-' + entry.id" v-model.number="entry.nisEquivalent" required step="any" placeholder="0.00" />
+        </div>
+
+        <div class="form-group">
+          <label :for="'paymentMethod-' + entry.id">طريقة الدفع للبند</label>
+          <select :id="'paymentMethod-' + entry.id" v-model="entry.method">
+            <option v-for="meth in ALLOWED_PAYMENT_METHODS" :key="meth" :value="meth">{{ meth }}</option> 
+            <!-- Populating options dynamically based on ALLOWED_PAYMENT_METHODS -->
+            <!-- Original options can be kept if preferred, but ensure values match PaymentMethod type -->
+            <!-- 
+            <option value="cash">نقداً</option>
+            <option value="bank_transfer">تحويل بنكي</option>
+            <option value="card">بطاقة ائتمان/خصم</option>
+            <option value="online">دفع إلكتروني</option>
+            <option value="cheque">شيك</option>
+            <option value="other">أخرى</option>
+            -->
+          </select>
+        </div>
+
+        <button type="button" @click="removePaymentEntry(entry.id)" v-if="paymentEntries.length > 1" class="btn btn-danger btn-sm remove-entry-btn">
+          <i class="fas fa-trash"></i> إزالة هذا البند
+        </button>
       </div>
 
-      <div class="form-group">
-        <label for="paymentCurrency">العملة</label>
-        <select id="paymentCurrency" v-model="paymentFields.currency" @change="handleCurrencyChange">
-          <option value="NIS">شيكل (NIS)</option>
-          <option value="JOD">دينار أردني (JOD)</option>
-          <option value="USD">دولار أمريكي (USD)</option>
-        </select>
-      </div>
+      <button type="button" @click="addPaymentEntry" class="btn btn-success btn-sm add-entry-btn">
+        <i class="fas fa-plus"></i> إضافة بند دفع آخر
+      </button>
+      <!-- End Payment Entries -->
 
-      <div class="form-group" v-if="paymentFields.currency === 'JOD' || paymentFields.currency === 'USD'">
-        <label for="paymentNisEquivalent">المقابل بالشيكل <span class="required-star">*</span></label>
-        <input type="number" id="paymentNisEquivalent" v-model.number="paymentFields.nisEquivalent" required step="any" placeholder="0.00" />
-      </div>
-      <!-- End multi-currency -->
+      <hr class="section-divider">
 
+      <h4><i class="fas fa-calendar-alt"></i> تفاصيل المعاملة العامة</h4>
       <div class="form-group">
         <label for="paymentDate">تاريخ الدفعة</label>
         <input type="date" id="paymentDate" v-model="dateString" required />
       </div>
 
       <div class="form-group">
-        <label for="paymentMethod">طريقة الدفع</label>
-        <select id="paymentMethod" v-model="paymentFields.method">
-          <option value="cash">نقداً</option>
-          <option value="bank_transfer">تحويل بنكي</option>
-          <option value="card">بطاقة ائتمان/خصم</option>
-          <option value="online">دفع إلكتروني</option>
-          <option value="cheque">شيك</option>
-          <option value="other">أخرى</option>
-        </select>
+        <label for="notes">ملاحظات (اختياري للمعاملة)</label>
+        <textarea id="notes" v-model="paymentTransactionDetails.notes" rows="3" placeholder="مثال: دفعة مقدمة، رقم الإيصال..."></textarea>
       </div>
 
-      <div class="form-group">
-        <label for="notes">ملاحظات (اختياري)</label>
-        <textarea id="notes" v-model="paymentFields.notes" rows="3" placeholder="مثال: دفعة مقدمة، رقم الإيصال..."></textarea>
+      <!-- Payment Summary -->
+      <div v-if="totalPaymentAmount > 0" class="payment-summary">
+        <h4>ملخص الدفعة الإجمالي:</h4>
+        <p v-for="currencyTotal in currencySpecificTotals" :key="currencyTotal.currency">
+          إجمالي ({{ currencyTotal.currency }}): {{ formatCurrency(currencyTotal.total, currencyTotal.currency) }}
+        </p>
+        <p class="total-nis-equivalent">
+          <strong>الإجمالي الكلي المدفوع (المقابل بالشيكل): {{ formatCurrency(paymentSummaryTotalNIS, 'NIS') }}</strong>
+        </p>
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn btn-primary" :disabled="customersStore.loading || !selectedCustomerId || paymentFields.amount <= 0">
+        <button type="submit" class="btn btn-primary" :disabled="isSubmitDisabled">
           <i class="fas fa-save"></i> حفظ الدفعة
         </button>
       </div>
@@ -75,10 +115,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { usePaymentsStore, type NewPaymentData, type StoredPayment } from '@/store/modules/payments';
-import { useCustomersStore, type Customer, type PaymentDetail } from '@/store/modules/customers';
+// Removed StoredPayment as it's unused
+import { usePaymentsStore, type NewPaymentData } from '@/store/modules/payments'; 
+import { useCustomersStore, type Customer, type PaymentDetail, type PaymentPart } from '@/store/modules/customers';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ErrorMessage from '@/components/common/ErrorMessage.vue';
+import { nanoid } from 'nanoid'; // For generating unique IDs for entries
 
 const props = defineProps({
   customerIdProp: {
@@ -92,46 +134,83 @@ const customersStore = useCustomersStore();
 const emit = defineEmits(['payment-saved']);
 
 const formError = ref<string | null>(null);
-const currentError = computed(() => formError.value || paymentsStore.error); // Combine local and store errors
 
 const selectedCustomerId = ref<string>('');
 
-const paymentFields = ref<{
-  amount: number;
+// Define the allowed payment methods as a const array / union type
+const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'online', 'cheque', 'other'] as const;
+type PaymentMethod = typeof ALLOWED_PAYMENT_METHODS[number];
+
+interface PaymentEntry {
+  id: string;
+  amount: number | null;
   currency: 'NIS' | 'JOD' | 'USD';
-  nisEquivalent?: number;
-  paymentDate: number; 
-  method: string;
-  notes: string;
-}>({
-  amount: 0,
+  nisEquivalent?: number | null;
+  method: PaymentMethod; // Use the defined PaymentMethod type
+}
+
+const createNewPaymentEntry = (): PaymentEntry => ({
+  id: nanoid(),
+  amount: null,
   currency: 'NIS',
   nisEquivalent: undefined,
+  method: 'cash', // Default method for new entries, conforms to PaymentMethod
+});
+
+const paymentEntries = ref<PaymentEntry[]>([createNewPaymentEntry()]);
+
+const paymentTransactionDetails = ref<{
+  paymentDate: number;
+  // method: string; // Removed common method
+  notes: string;
+}>({
   paymentDate: Date.now(),
-  method: 'cash',
+  // method: 'cash', // Removed common method
   notes: ''
 });
 
-// Computed property to handle date conversion between HTML input and timestamp
 const dateString = computed({
   get: () => {
-    const date = new Date(paymentFields.value.paymentDate);
+    const date = new Date(paymentTransactionDetails.value.paymentDate);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`; // Format as YYYY-MM-DD
+    return `${year}-${month}-${day}`;
   },
   set: (value: string) => {
     if (value) {
-      paymentFields.value.paymentDate = new Date(value).getTime();
+      paymentTransactionDetails.value.paymentDate = new Date(value).getTime();
     } else {
-      paymentFields.value.paymentDate = Date.now(); // Default to now if cleared
+      paymentTransactionDetails.value.paymentDate = Date.now();
     }
   }
 });
 
+const totalPaymentAmount = computed(() => {
+  return paymentEntries.value.reduce((sum, entry) => sum + (entry.amount || 0), 0);
+});
+
+const paymentSummaryTotalNIS = computed(() => {
+  return paymentEntries.value.reduce((sum, entry) => {
+    const amountInNIS = entry.currency === 'NIS' ? (entry.amount || 0) : (entry.nisEquivalent || 0);
+    return sum + amountInNIS;
+  }, 0);
+});
+
+const currencySpecificTotals = computed(() => {
+  const totals: { [key: string]: number } = { NIS: 0, JOD: 0, USD: 0 };
+  paymentEntries.value.forEach(entry => {
+    if (entry.amount && entry.currency) {
+      totals[entry.currency] += entry.amount;
+    }
+  });
+  return Object.entries(totals)
+    .filter(([, total]) => total > 0)
+    .map(([currency, total]) => ({ currency, total }));
+});
+
+
 const selectedCustomerDetails = computed<Customer | undefined>(() => {
-  // Ensure we are getting the customer from the store's list, which should be up-to-date
   return customersStore.customers.find(c => c.id === selectedCustomerId.value);
 });
 
@@ -139,25 +218,25 @@ watch(() => props.customerIdProp, (newVal) => {
   if (newVal) {
     selectedCustomerId.value = newVal;
     if (!customersStore.customers.find(c => c.id === newVal)) {
-      customersStore.fetchCustomerById(newVal); 
+      customersStore.fetchCustomerById(newVal);
     }
   }
 }, { immediate: true });
 
-
 const handleCustomerChange = () => {
   formError.value = null;
   paymentsStore.clearError();
-  if (selectedCustomerId.value && !customersStore.customers.find(c => c.id === selectedCustomerId.value)){
+  if (selectedCustomerId.value && !customersStore.customers.find(c => c.id === selectedCustomerId.value)) {
     customersStore.fetchCustomerById(selectedCustomerId.value);
   }
 };
 
 const prefillAmountWithBalance = () => {
-  if (selectedCustomerDetails.value && selectedCustomerDetails.value.balance !== undefined && selectedCustomerDetails.value.balance > 0) {
-    paymentFields.value.amount = selectedCustomerDetails.value.balance;
-    paymentFields.value.currency = 'NIS';
-    paymentFields.value.nisEquivalent = undefined; // NIS doesn't need equivalent
+  if (selectedCustomerDetails.value && selectedCustomerDetails.value.balance !== undefined && selectedCustomerDetails.value.balance > 0 && paymentEntries.value.length > 0) {
+    const firstEntry = paymentEntries.value[0];
+    firstEntry.amount = selectedCustomerDetails.value.balance;
+    firstEntry.currency = 'NIS';
+    firstEntry.nisEquivalent = undefined;
     formError.value = null;
     paymentsStore.clearError();
   } else if (selectedCustomerDetails.value && selectedCustomerDetails.value.balance !== undefined && selectedCustomerDetails.value.balance <= 0) {
@@ -167,21 +246,37 @@ const prefillAmountWithBalance = () => {
   }
 };
 
-const handleCurrencyChange = () => {
-  if (paymentFields.value.currency === 'NIS') {
-    paymentFields.value.nisEquivalent = undefined; // Clear if NIS
+const handleCurrencyChange = (entry: PaymentEntry) => {
+  if (entry.currency === 'NIS') {
+    entry.nisEquivalent = undefined;
   } else {
-    // For JOD or USD, prompt user by clearing (or could attempt a default conversion if an API was available)
-    paymentFields.value.nisEquivalent = undefined; 
+    entry.nisEquivalent = undefined; // Or attempt conversion if API available
   }
   formError.value = null;
   paymentsStore.clearError();
 };
 
-const generateUniqueId = () => {
-  // More robust unique ID generation
-  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
-}
+const addPaymentEntry = () => {
+  paymentEntries.value.push(createNewPaymentEntry());
+};
+
+const removePaymentEntry = (id: string) => {
+  paymentEntries.value = paymentEntries.value.filter(entry => entry.id !== id);
+  if (paymentEntries.value.length === 0) { // Ensure at least one entry, though UI prevents this
+    addPaymentEntry();
+  }
+};
+
+const isSubmitDisabled = computed(() => {
+  return customersStore.loading ||
+         !selectedCustomerId.value ||
+         paymentEntries.value.length === 0 ||
+         paymentEntries.value.every(entry => !entry.amount || entry.amount <= 0) ||
+         paymentEntries.value.some(entry => 
+           (entry.currency === 'JOD' || entry.currency === 'USD') && 
+           (!entry.nisEquivalent || entry.nisEquivalent <= 0)
+         );
+});
 
 const handleSubmit = async () => {
   formError.value = null;
@@ -191,130 +286,128 @@ const handleSubmit = async () => {
     formError.value = 'يرجى اختيار عميل.';
     return;
   }
-  if (paymentFields.value.amount <= 0) {
-    formError.value = 'يرجى إدخال مبلغ صحيح أكبر من صفر.';
+
+  if (paymentEntries.value.length === 0 || paymentEntries.value.every(e => !(e.amount && e.amount > 0))) {
+    formError.value = 'يرجى إدخال مبلغ صحيح واحد على الأقل (أكبر من صفر).';
     return;
   }
-  if ((paymentFields.value.currency === 'JOD' || paymentFields.value.currency === 'USD') && 
-      (!paymentFields.value.nisEquivalent || paymentFields.value.nisEquivalent <= 0)) {
-    formError.value = 'يرجى إدخال قيمة المقابل بالشيكل للعملات الأجنبية (يجب أن تكون أكبر من صفر).';
-    return;
+
+  for (const entry of paymentEntries.value) {
+    if (!entry.amount || entry.amount <= 0) {
+      formError.value = `بند الدفعة بمبلغ ${entry.amount || 'فارغ'} غير صالح. يجب أن يكون المبلغ أكبر من صفر.`;
+      return;
+    }
+    if ((entry.currency === 'JOD' || entry.currency === 'USD') &&
+        (!entry.nisEquivalent || entry.nisEquivalent <= 0)) {
+      formError.value = `يرجى إدخال قيمة المقابل بالشيكل لبند العملة ${entry.currency} (يجب أن تكون أكبر من صفر).`;
+      return;
+    }
   }
 
   try {
-    // Ensure the customer data is fresh, especially if it wasn't fetched recently
-    // The customersStore.getCustomerById is a getter, use fetchCustomerById for network request
-    await customersStore.fetchCustomers();
-    const customer = customersStore.getCustomerById(selectedCustomerId.value); // Now get the (potentially updated) customer
+    await customersStore.fetchCustomers(); // Ensure customer list is fresh
+    const customer = customersStore.getCustomerById(selectedCustomerId.value);
 
     if (!customer) {
-      formError.value = 'لم يتم العثور على العميل. قد يكون قد تم حذفه أو هناك مشكلة في استرجاع البيانات.';
+      formError.value = 'لم يتم العثور على العميل.';
       return;
     }
 
-    // 1. Create PaymentDetail for the customer's payments array
+    const paymentParts: PaymentPart[] = paymentEntries.value.map(entry => ({
+      id: nanoid(), // Unique ID for this part
+      amount: entry.amount!,
+      currency: entry.currency,
+      nisEquivalent: entry.currency === 'NIS'
+        ? entry.amount! // if NIS, amount is nisEquivalent
+        : (entry.nisEquivalent || 0), // if not NIS, use provided nisEquivalent or default to 0
+      method: entry.method, // Added method from the entry
+    }));
+
+    const totalTransactionNIS = paymentParts.reduce((sum, part) => {
+      // Ensure nisEquivalent is treated as a number, defaulting to 0 if undefined or null
+      return sum + (part.nisEquivalent || 0);
+    }, 0);
+
     const newPaymentDetail: PaymentDetail = {
-      id: generateUniqueId(),
-      parts: [{
-        id: generateUniqueId(),
-        amount: paymentFields.value.amount,
-        currency: paymentFields.value.currency,
-        nisEquivalent: paymentFields.value.currency === 'NIS' 
-          ? paymentFields.value.amount  // For NIS, use amount as nisEquivalent
-          : (paymentFields.value.nisEquivalent || 0) // For other currencies, use provided value or 0
-      }],
-      totalTransactionNIS: paymentFields.value.currency === 'NIS' 
-        ? paymentFields.value.amount 
-        : (paymentFields.value.nisEquivalent || 0),
-      paymentDate: paymentFields.value.paymentDate,
-      method: paymentFields.value.method as any,
-      notes: paymentFields.value.notes?.trim() || '-' // Set notes to '-' if empty or null
+      id: nanoid(), // Unique ID for the overall transaction
+      parts: paymentParts,
+      totalTransactionNIS: totalTransactionNIS,
+      paymentDate: paymentTransactionDetails.value.paymentDate,
+      // method: paymentTransactionDetails.value.method as any, // Removed common method from PaymentDetail
+      notes: paymentTransactionDetails.value.notes?.trim() || '-'
     };
 
-    // 2. Update customer with the new payment detail
-    // Ensure customer.payments is an array before spreading
     const existingPayments = Array.isArray(customer.payments) ? customer.payments : [];
     const updatedPaymentsArray = [...existingPayments, newPaymentDetail];
-    
-    // The updateCustomer action in customersStore should handle recalculating totalPaidNIS and balance
+
     await customersStore.updateCustomer({ id: customer.id, payments: updatedPaymentsArray });
 
-    // 3. Log the payment in the payments store (historical log)
-    const paymentLogEntry: NewPaymentData = {
-      customerId: selectedCustomerId.value,
-      amount: paymentFields.value.amount,
-      currency: paymentFields.value.currency,
-      nisEquivalent: paymentFields.value.currency === 'NIS' 
-        ? paymentFields.value.amount 
-        : (paymentFields.value.nisEquivalent || 0),
-      paymentDate: paymentFields.value.paymentDate,
-      method: paymentFields.value.method as 'cash' | 'bank_transfer' | 'card' | 'online' | 'cheque' | 'other',
-      notes: paymentFields.value.notes?.trim() || '-', // Set notes to '-' if empty or null
-      originalPaymentDetailId: newPaymentDetail.id, // Link to the payment detail in customer object
-    };
-    await paymentsStore.addPayment(paymentLogEntry);
+    // Log each part to the payments store
+    for (const part of paymentParts) {
+      const paymentLogEntry: NewPaymentData = {
+        customerId: selectedCustomerId.value,
+        amount: part.amount,
+        currency: part.currency,
+        nisEquivalent: part.nisEquivalent,
+        paymentDate: paymentTransactionDetails.value.paymentDate,
+        method: part.method, // Use method from the part
+        notes: paymentTransactionDetails.value.notes?.trim() || '-', // Common notes for now
+        originalPaymentDetailId: newPaymentDetail.id,
+        // Assuming NewPaymentData is updated to include paymentPartId
+        // paymentPartId: part.id,
+      };
+      await paymentsStore.addPayment(paymentLogEntry);
+    }
 
     emit('payment-saved');
     resetForm();
-    // The customer list in the store is updated by updateCustomer.
-    // The PaymentManagementPage will listen for 'payment-saved' and can refresh PaymentHistory.
 
   } catch (e: any) {
     console.error("Failed to save payment:", e);
-    formError.value = e.message || 'حدث خطأ أثناء حفظ الدفعة. يرجى المحاولة مرة أخرى.';
+    formError.value = e.message || 'حدث خطأ أثناء حفظ الدفعة.';
   }
 };
 
 const resetForm = () => {
-  paymentFields.value = {
-    amount: 0,
-    currency: 'NIS',
-    nisEquivalent: undefined,
+  paymentEntries.value = [createNewPaymentEntry()];
+  paymentTransactionDetails.value = {
     paymentDate: Date.now(),
-    method: 'cash',
+    // method: 'cash', // Removed common method
     notes: ''
   };
-  // dateString is computed and will update automatically.
   formError.value = null;
   paymentsStore.clearError();
-  
+
   if (!props.customerIdProp) {
     selectedCustomerId.value = '';
   }
 };
 
-const formatCurrency = (value: number | undefined, currency: string = 'NIS') => {
+const formatCurrency = (value: number | undefined | null, currency: string = 'NIS') => {
   if (typeof value !== 'number') return 'N/A';
   const locale = currency === 'NIS' ? 'he-IL' : (currency === 'JOD' ? 'ar-JO' : 'en-US');
   return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 };
 
 onMounted(async () => {
-  // Fetch all customers if not already loaded or if the list is stale
-  if (!customersStore.customers.length || customersStore.lastFetchTimestamp === 0) { // Add staleness check if needed
+  if (!customersStore.customers.length || customersStore.lastFetchTimestamp === 0) {
     await customersStore.fetchCustomers();
   }
-  
-  // If customerIdProp is provided, select it and ensure its details are loaded for balance display & prefill
   if (props.customerIdProp) {
     selectedCustomerId.value = props.customerIdProp;
-    // Fetch if not in the list or if details might be stale
-    if (!customersStore.customers.find(c => c.id === props.customerIdProp) || 
-        (customersStore.customers.find(c => c.id === props.customerIdProp) && 
-         customersStore.customers.find(c => c.id === props.customerIdProp)?.balance === undefined)) {
+    if (!customersStore.customers.find(c => c.id === props.customerIdProp) ||
+        (customersStore.customers.find(c => c.id === props.customerIdProp)?.balance === undefined)) {
       await customersStore.fetchCustomerById(props.customerIdProp);
     }
   }
-  
-  // Set initial paymentDate. dateString computed property will reflect this.
-  paymentFields.value.paymentDate = Date.now();
+  paymentTransactionDetails.value.paymentDate = Date.now(); // Ensure date is set on mount
 });
 
 </script>
 
 <style scoped lang="scss">
 .payment-form-container {
-  max-width: 600px;
+  max-width: 800px; // Increased width
   margin: 0 auto;
   padding: 1.5rem;
   background-color: #fff;
@@ -420,4 +513,89 @@ onMounted(async () => {
     text-align: center;
   }
 }
+
+.payment-entry-row {
+  border: 1px solid #e0e0e0;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.375rem;
+  background-color: #fdfdfd;
+
+  h4 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+    color: #007bff;
+    display: flex;
+    align-items: center;
+    i {
+      margin-left: 0.5rem;
+    }
+  }
+}
+
+.remove-entry-btn {
+  margin-top: 0.5rem;
+  display: block; // Or inline-block with other layout adjustments
+  margin-left: auto; // Pushes button to the right if container allows
+}
+
+.add-entry-btn {
+  margin-bottom: 1.5rem;
+}
+
+.section-divider {
+  margin-top: 2rem;
+  margin-bottom: 1.5rem;
+  border-color: #ccc;
+}
+
+.payment-summary {
+  margin-top: 1.5rem; // Added margin-top for spacing
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 0.375rem;
+
+  h4 {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+    font-size: 1.1rem;
+    color: #333;
+  }
+
+  p {
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+  }
+
+  .total-nis-equivalent strong {
+    color: #007bff;
+  }
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem; // Space between items in the row
+  align-items: flex-end; // Align items to the bottom if labels make them uneven
+}
+
+.amount-group {
+  flex: 2; // Amount field takes more space
+}
+
+.currency-group {
+  flex: 1; // Currency field takes less space
+}
+
+.nis-equivalent-group {
+  margin-top: 0.5rem; // Add some space if it's below the amount/currency row
+}
+
+// Ensure existing styles for .payment-form-container, .form-group, .form-actions are either here or imported
+// For brevity, only new/modified styles are detailed above.
+// Make sure to include or import existing styles for:
+// .payment-form-container, h3, .form-group, label, input, select, textarea, .required-star,
+// .customer-balance-info, .form-actions, .btn, .loading-spinner, .error-message
 </style>

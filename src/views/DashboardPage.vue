@@ -24,6 +24,7 @@ import { ref } from 'vue';
 
 const tabs = ref([
   { label: 'إدارة العملاء والأضاحي', name: 'CustomerList', path: '/customer-list' },
+  { label: 'أضاحي العملاء', name: 'CustomerRelationships', path: '/customer-relationships' },
   { label: 'قائمة المدفوعات', name: 'PaymentList', path: '/payments/list' },
   { label: 'إضافة دفعة', name: 'PaymentForm', path: '/payments/add' },
   { label: 'التقارير', name: 'Reports', path: '/reports' },

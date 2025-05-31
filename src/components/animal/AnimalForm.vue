@@ -26,7 +26,7 @@
       </div>
       <div class="form-group">
         <label :for="`animalPrice-${animalIndex}`">سعر الكيلو / السعر الإجمالي</label>
-        <input type="number" step="0.01" :id="`animalPrice-${animalIndex}`" v-model.number="editableAnimal.price" @input="calculateTotal" placeholder="0.00" />
+        <input type="number" step="0.01" :id="`animalPrice-${animalIndex}`" v-model.number="editableAnimal.pricePerUnit" @input="calculateTotal" placeholder="0.00" />
         <!-- Clarify if price is per kg or total. Assuming per kg for now based on 'calculateTotal' -->
       </div>
     </div>
@@ -84,8 +84,8 @@ watch(editableAnimal, (newVal) => {
 
 const calculateTotal = () => {
   const weight = editableAnimal.value.weight || 0;
-  const price = editableAnimal.value.price || 0;
-  editableAnimal.value.total = parseFloat((weight * price).toFixed(2));
+  const pricePerUnit = editableAnimal.value.pricePerUnit || 0;
+  editableAnimal.value.total = parseFloat((weight * pricePerUnit).toFixed(2));
 };
 
 onMounted(() => {
@@ -93,8 +93,8 @@ onMounted(() => {
   calculateTotal();
 });
 
-// Watch for changes in weight or price to recalculate total
-watch(() => [editableAnimal.value.weight, editableAnimal.value.price], () => {
+// Watch for changes in weight or pricePerUnit to recalculate total
+watch(() => [editableAnimal.value.weight, editableAnimal.value.pricePerUnit], () => {
   calculateTotal();
 });
 

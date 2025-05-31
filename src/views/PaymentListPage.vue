@@ -14,50 +14,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import PaymentHistory from '@/components/payment/PaymentHistory.vue';
 import { usePaymentsStore } from '@/store/modules/payments';
 
 const paymentHistoryRef = ref<InstanceType<typeof PaymentHistory> | null>(null);
 const paymentsStore = usePaymentsStore();
-
-// Calculate total payments in NIS
-const totalNisPayments = computed(() => {
-  return paymentsStore.payments.reduce((sum, payment) => {
-    const amountInNIS = payment.currency === 'NIS' ? payment.amount : (payment.nisEquivalent || 0);
-    return sum + amountInNIS;
-  }, 0);
-});
-
-// Format the last payment date
-const lastPaymentDate = computed(() => {
-  if (!paymentsStore.payments.length) return '-';
-  
-  // Sort payments by date (descending) and get the first one
-  const sortedPayments = [...paymentsStore.payments].sort((a, b) => {
-    const dateA = new Date(a.paymentDate).getTime();
-    const dateB = new Date(b.paymentDate).getTime();
-    return dateB - dateA;
-  });
-  
-  const date = new Date(sortedPayments[0].paymentDate);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-});
-
-// Currency formatter
-const formatCurrency = (value: number, currency: string = 'NIS') => {
-  if (typeof value !== 'number') return 'N/A';
-  const locale = currency === 'NIS' ? 'he-IL' : (currency === 'JOD' ? 'ar-JO' : 'en-US');
-  return new Intl.NumberFormat(locale, { 
-    style: 'currency', 
-    currency, 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  }).format(value);
-};
 
 onMounted(async () => {
   if (!paymentsStore.payments.length) {

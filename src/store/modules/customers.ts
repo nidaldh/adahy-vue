@@ -7,19 +7,27 @@ import { useAuthStore } from './auth';
 export interface Animal {
   id: string; 
   type: string; 
-  number: string; 
+  number: string; // Individual animal number for unique tracking
+  count: number; // Quantity of this animal type
   weight: number; 
-  price: number; 
+  pricePerUnit: number; // Changed from 'price' to 'pricePerUnit' for clarity
   total: number; 
   status: 'حي' | 'جاهز' | 'مذبوح' | 'ملغي'; 
-  compositeKey: string; 
+  compositeKey: string; // type_number for unique identification
+  notes?: string; // Optional notes for the animal
+  createdAt: number; // Add creation timestamp
 }
+
+// Define the allowed payment methods as a const array / union type
+export const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'online', 'cheque', 'other'] as const;
+export type PaymentMethodType = typeof ALLOWED_PAYMENT_METHODS[number];
 
 export interface PaymentPart {
   id: string; // Unique ID for this part of the payment
   amount: number;
   currency: 'NIS' | 'JOD' | 'USD';
   nisEquivalent?: number; // Required if currency is JOD or USD
+  method: PaymentMethodType; // Updated to use the specific type
 }
 
 export interface PaymentDetail {
@@ -27,7 +35,7 @@ export interface PaymentDetail {
   parts: PaymentPart[]; // Array of payment parts
   totalTransactionNIS: number; // Sum of nisEquivalent for all parts in this transaction
   paymentDate: number; // Timestamp for the transaction
-  method?: 'cash' | 'bank_transfer' | 'card' | 'online' | 'cheque' | 'other'; // Optional: payment method for the transaction
+  // method?: 'cash' | 'bank_transfer' | 'card' | 'online' | 'cheque' | 'other'; // Optional: payment method for the transaction - REMOVED as it's per part now
   notes?: string; // Optional: notes for the transaction
 }
 
@@ -47,7 +55,7 @@ export interface Customer {
 }
 
 export type NewCustomerData = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'totalPaidNIS' | 'balance'> & {
-  animals: Array<Omit<Animal, 'id' | 'total' | 'compositeKey'> & Partial<Pick<Animal, 'id' | 'status'>>>;
+  animals: Array<Omit<Animal, 'id' | 'total' | 'compositeKey' | 'createdAt'> & Partial<Pick<Animal, 'id' | 'status'>>>;
   payments?: Array<Omit<PaymentDetail, 'id' | 'totalTransactionNIS'> & { // totalTransactionNIS will be calculated
     parts: Array<Omit<PaymentPart, 'id'> & Partial<Pick<PaymentPart, 'id'>>>;
   } & Partial<Pick<PaymentDetail, 'id'>>>;
@@ -126,17 +134,19 @@ export const useCustomersStore = defineStore('customers', () => {
     try {
       let totalAmount = 0;
       const processedAnimals: Animal[] = customerData.animals.map(animal => {
-        const total = (animal.weight || 0) * (animal.price || 0);
+        const total = (animal.weight || 0) * (animal.pricePerUnit || 0);
         totalAmount += total;
         return {
           type: animal.type,
-          number: animal.number,
+          number: animal.number || `${Date.now()}`, // Individual animal number
+          count: animal.count,
           weight: animal.weight,
-          price: animal.price,
+          pricePerUnit: animal.pricePerUnit,
           id: animal.id || crypto.randomUUID(), 
           total,
-          compositeKey: `${animal.type}-${animal.number}`,
+          compositeKey: `${animal.type}_${animal.number || Date.now()}`, // type_number format
           status: animal.status || 'حي',
+          createdAt: Date.now(),
         };
       });
 
@@ -191,17 +201,19 @@ export const useCustomersStore = defineStore('customers', () => {
       if (customerData.animals && Array.isArray(customerData.animals)) {
         let currentTotalAmountForAnimals = 0;
         processedAnimals = customerData.animals.map(animalInput => {
-          const total = (animalInput.weight || 0) * (animalInput.price || 0);
+          const total = (animalInput.weight || 0) * (animalInput.pricePerUnit || 0);
           currentTotalAmountForAnimals += total;
           return {
             id: animalInput.id || crypto.randomUUID(),
             type: animalInput.type,
-            number: animalInput.number,
+            number: animalInput.number || `${Date.now()}`, // Individual animal number
+            count: animalInput.count,
             weight: animalInput.weight,
-            price: animalInput.price,
+            pricePerUnit: animalInput.pricePerUnit,
             status: animalInput.status || 'حي',
             total,
-            compositeKey: `${animalInput.type}-${animalInput.number}`,
+            compositeKey: `${animalInput.type}_${animalInput.number || Date.now()}`, // type_number format
+            createdAt: Date.now(),
           };
         });
         newTotalAmount = currentTotalAmountForAnimals;
@@ -324,6 +336,148 @@ export const useCustomersStore = defineStore('customers', () => {
     }
   };
 
+  // New methods for customer-animal relationship management
+  const addAnimalToCustomer = async (customerId: string, animal: Animal) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot add animal to customer.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const updatedAnimals = [...customer.animals, animal];
+      const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
+      const newBalance = newTotalAmount - customer.totalPaidNIS;
+
+      await firebaseUpdateData(customerId, {
+        animals: updatedAnimals,
+        totalAmount: newTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const updateCustomerAnimal = async (customerId: string, animalId: string, updates: Partial<Animal>) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot update animal.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const updatedAnimals = customer.animals.map(animal => 
+        animal.id === animalId ? { ...animal, ...updates } : animal
+      );
+
+      // Recalculate totals if weight or pricePerUnit changed
+      const animalIndex = updatedAnimals.findIndex(a => a.id === animalId);
+      if (animalIndex !== -1 && (updates.weight !== undefined || updates.pricePerUnit !== undefined)) {
+        const animal = updatedAnimals[animalIndex];
+        animal.total = animal.weight * animal.pricePerUnit;
+      }
+
+      const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
+      const newBalance = newTotalAmount - customer.totalPaidNIS;
+
+      await firebaseUpdateData(customerId, {
+        animals: updatedAnimals,
+        totalAmount: newTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const removeAnimalFromCustomer = async (customerId: string, animalId: string) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot remove animal.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const updatedAnimals = customer.animals.filter(animal => animal.id !== animalId);
+      const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
+      const newBalance = newTotalAmount - customer.totalPaidNIS;
+
+      await firebaseUpdateData(customerId, {
+        animals: updatedAnimals,
+        totalAmount: newTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const bulkUpdateCustomerAnimals = async (customerId: string, animalIds: string[], updates: Partial<Animal>) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot update animals.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const updatedAnimals = customer.animals.map(animal => {
+        if (animalIds.includes(animal.id)) {
+          const updatedAnimal = { ...animal, ...updates };
+          // Recalculate total if weight or pricePerUnit changed
+          if (updates.weight !== undefined || updates.pricePerUnit !== undefined) {
+            updatedAnimal.total = updatedAnimal.weight * updatedAnimal.pricePerUnit;
+          }
+          return updatedAnimal;
+        }
+        return animal;
+      });
+
+      const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
+      const newBalance = newTotalAmount - customer.totalPaidNIS;
+
+      await firebaseUpdateData(customerId, {
+        animals: updatedAnimals,
+        totalAmount: newTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const searchCustomers = computed(() => {
+    return (query: string) => {
+      if (!query.trim()) return storeCustomers.value;
+      
+      const searchTerm = query.toLowerCase().trim();
+      return storeCustomers.value.filter(customer =>
+        customer.name.toLowerCase().includes(searchTerm) ||
+        (customer.phone && customer.phone.includes(searchTerm))
+      );
+    };
+  });
+
   return {
     customers: computed(() => storeCustomers.value),
     loading: computed(() => storeLoading.value),
@@ -336,6 +490,12 @@ export const useCustomersStore = defineStore('customers', () => {
     setError: localSetError, // Expose the local error setter
     clearError, // Expose the clearError function
     fetchCustomers, // Add this method
+    // New relationship management methods
+    addAnimalToCustomer,
+    updateCustomerAnimal,
+    removeAnimalFromCustomer,
+    bulkUpdateCustomerAnimals,
+    searchCustomers,
     // Add fetchCustomerById if it's not implicitly covered or needed directly
     fetchCustomerById: async (id: string): Promise<Customer | null> => {
       if (!authStore.userId) {

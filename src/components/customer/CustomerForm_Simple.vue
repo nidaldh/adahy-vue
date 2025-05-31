@@ -9,7 +9,7 @@
         <legend>بيانات العميل</legend>
         <div class="form-row">
           <div class="form-group">
-            <label for="customerName">اسم العميل *</label>
+            <label for="customerName">اسم العميل</label>
             <input type="text" id="customerName" v-model="formData.name" required />
           </div>
           <div class="form-group">
@@ -29,7 +29,7 @@
 
       <fieldset>
         <legend>الأضاحي</legend>
-        <div v-for="(animal, index) in formData.animals" :key="animal.id || index" class="animal-entry">
+        <div v-for="(animal, index) in formData.animals" :key="animal.id" class="animal-entry">
           <animal-form
             v-model="formData.animals[index]"
             :animal-index="index"
@@ -41,16 +41,18 @@
         </button>
       </fieldset>
 
+      <fieldset>
+        <legend>بيانات الدفع</legend>
+        <div class="payment-notice">
+          <p><i class="fas fa-info-circle"></i> وظائف الدفع متاحة في صفحة إدارة المدفوعات</p>
+        </div>
+      </fieldset>
+
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="customersStore.loading">
           {{ editMode ? 'تحديث البيانات' : 'حفظ العميل' }}
         </button>
-        <button 
-          type="button" 
-          @click="resetFormAndNotifyParent" 
-          class="btn btn-outline" 
-          v-if="editMode"
-        >
+        <button type="button" @click="resetFormAndNotifyParent" class="btn btn-outline" v-if="editMode">
           إلغاء التعديل
         </button>
       </div>
@@ -96,7 +98,8 @@ const initialFormData = () => ({
   phone: '',
   address: '',
   notes: '',
-  animals: [initialAnimal()]
+  animals: [initialAnimal()],
+  payments: [] // Empty payments array for now
 });
 
 const formData = ref(initialFormData());
@@ -111,11 +114,12 @@ watch(() => props.customerToEdit, (newVal) => {
       notes: newVal.notes || '',
       animals: newVal.animals && newVal.animals.length > 0 
                  ? newVal.animals.map(a => ({ ...a, id: a.id || uuidv4() })) 
-                 : [initialAnimal()]
+                 : [initialAnimal()],
+      payments: [] // Simplified - no payment editing for now
     };
   } else {
     if (editMode.value) {
-      resetForm();
+        resetForm();
     }
     editMode.value = false;
   }
@@ -126,13 +130,11 @@ const addAnimal = () => {
 };
 
 const removeAnimal = (index: number) => {
-  if (formData.value.animals.length > 1) {
-    formData.value.animals.splice(index, 1);
-  }
+  formData.value.animals.splice(index, 1);
 };
 
 const handleSubmit = async () => {
-  if (!formData.value.name.trim()) {
+  if (!formData.value.name) {
     customersStore.setError("اسم العميل مطلوب.");
     return;
   }
@@ -140,8 +142,7 @@ const handleSubmit = async () => {
   const processedAnimals = formData.value.animals.map(animal => ({
     ...animal,
     total: parseFloat(((animal.weight || 0) * (animal.pricePerUnit || 0)).toFixed(2)),
-    compositeKey: `${animal.type}_${animal.number}`,
-    createdAt: animal.createdAt || Date.now()
+    compositeKey: `${animal.type}_${animal.number}`
   }));
 
   const customerDataPayload = {
@@ -152,10 +153,7 @@ const handleSubmit = async () => {
 
   try {
     if (editMode.value && props.customerToEdit?.id) {
-      await customersStore.updateCustomer({ 
-        ...customerDataPayload, 
-        id: props.customerToEdit.id 
-      } as UpdateCustomerData);
+      await customersStore.updateCustomer({ ...customerDataPayload, id: props.customerToEdit.id } as UpdateCustomerData);
     } else {
       await customersStore.addCustomer(customerDataPayload);
     }
@@ -172,6 +170,7 @@ const resetForm = () => {
 const resetFormAndNotifyParent = () => {
   emit('customer-saved');
 };
+
 </script>
 
 <style scoped lang="scss">
@@ -227,7 +226,9 @@ fieldset {
   
   input[type="text"],
   input[type="tel"],
-  textarea {
+  input[type="number"],
+  textarea,
+  select {
     width: 100%;
     padding: 10px;
     border: 1px solid #ccc;
@@ -262,6 +263,22 @@ fieldset {
   
   i { 
     font-size: 0.8em; 
+  }
+}
+
+.payment-notice {
+  background-color: #e3f2fd;
+  border: 1px solid #bbdefb;
+  border-radius: 4px;
+  padding: 15px;
+  
+  p {
+    margin: 0;
+    color: #1976d2;
+    
+    i {
+      margin-left: 8px;
+    }
   }
 }
 
