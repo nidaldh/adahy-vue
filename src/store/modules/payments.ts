@@ -1,29 +1,31 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useAuthStore } from './auth';
-import { useCustomersStore } from './customers';
-import { useFirebaseDB } from '@/composables/useFirebaseDB'; // Import the actual composable
+import { useFirebaseDB } from '@/composables/useFirebaseDB';
 
-export interface Payment {
+// Renamed to StoredPayment to differentiate from Customer's PaymentDetail array items
+// This represents a single logged transaction.
+export interface StoredPayment {
   id: string;
   customerId: string;
   customerName?: string; // For display convenience, might be populated post-fetch
-  amount: number;
+  amount: number; // Amount in the specified currency
+  currency: 'NIS' | 'JOD' | 'USD';
+  nisEquivalent?: number; // NIS value if currency is JOD or USD (should be same as amount if currency is NIS)
   paymentDate: number; // Timestamp
-  method?: 'cash' | 'card' | 'transfer';
+  method?: 'cash' | 'bank_transfer' | 'card' | 'online' | 'cheque' | 'other';
   notes?: string;
+  originalPaymentDetailId?: string; // Optional: Link to the ID in Customer.payments array
 }
 
-export type NewPaymentData = Omit<Payment, 'id' | 'customerName'>;
-export type PaymentData = Payment; // Add this alias for backward compatibility
+export type NewPaymentData = Omit<StoredPayment, 'id' | 'customerName'>; // Renamed for clarity
 
 export const usePaymentsStore = defineStore('payments', () => {
-  const storePayments = ref<Payment[]>([]);
+  const storePayments = ref<StoredPayment[]>([]);
   const storeLoading = ref(false);
   const storeError = ref<string | null>(null);
-  const lastFetchTimestamp = ref(0); // Add for tracking last fetch
+  const lastFetchTimestamp = ref(0);
   const authStore = useAuthStore();
-  const customersStore = useCustomersStore();
 
   const { 
     data: firebasePayments, 
@@ -32,7 +34,7 @@ export const usePaymentsStore = defineStore('payments', () => {
     subscribe, 
     addData: firebaseAddData, 
     removeData: firebaseRemoveData 
-  } = useFirebaseDB<Payment>('payments'); // Base path for payments collection
+  } = useFirebaseDB<StoredPayment>('payments'); // Base path for payments collection
 
   // Watch for changes from the composable and update store state
   watch(firebasePayments, (newData) => {
@@ -58,42 +60,44 @@ export const usePaymentsStore = defineStore('payments', () => {
   }, { immediate: true });
 
   // This function now filters the already loaded storePayments.
-  const getPaymentsByCustomerId = (customerId: string): Payment[] => {
+  const getPaymentsByCustomerId = (customerId: string): StoredPayment[] => {
     return storePayments.value.filter(p => p.customerId === customerId);
   };
 
   const addPayment = async (paymentData: NewPaymentData) => {
     if (!authStore.userId) {
-      storeError.value = "User not authenticated. Cannot add payment.";
-      throw new Error("User not authenticated for adding payment");
+      storeError.value = "User not authenticated. Cannot add payment log entry.";
+      throw new Error("User not authenticated for adding payment log entry");
     }
     try {
-      const newPaymentId = await firebaseAddData(paymentData); // Adds to the 'payments' collection
-      await customersStore.updateCustomerFinancials(paymentData.customerId, paymentData.amount);
+      // This now only logs the payment transaction. Customer balance is updated via customersStore.
+      const newPaymentId = await firebaseAddData(paymentData); 
       return newPaymentId;
     } catch (err: any) {
+      storeError.value = `Failed to log payment: ${err.message}`;
       throw err; 
     }
   };
   
-  const deletePayment = async (paymentId: string, customerId: string, amount: number) => {
+  const deletePayment = async (paymentId: string) => { // customerId and amount removed, as this only deletes the log
     if (!authStore.userId) {
-      storeError.value = "User not authenticated. Cannot delete payment.";
-      throw new Error("User not authenticated for deleting payment");
+      storeError.value = "User not authenticated. Cannot delete payment log entry.";
+      throw new Error("User not authenticated for deleting payment log entry");
     }
     try {
-      await firebaseRemoveData(paymentId); // Removes from the 'payments' collection
-      await customersStore.updateCustomerFinancials(customerId, -amount); // Subtract the payment amount
+      // This now only deletes the payment log. Customer balance is updated via customersStore.
+      await firebaseRemoveData(paymentId); 
     } catch (err: any) {
+      storeError.value = `Failed to delete payment log: ${err.message}`;
       throw err;
     }
   };
 
-  const totalPaidForCustomer = computed(() => {
+  const totalPaidForCustomerNIS = computed(() => {
     return (customerId: string) => 
       storePayments.value
         .filter(p => p.customerId === customerId)
-        .reduce((sum, p) => sum + p.amount, 0);
+        .reduce((sum, p) => sum + (p.currency === 'NIS' ? p.amount : (p.nisEquivalent || 0)), 0);
   });
 
   const allUserPayments = computed(() => storePayments.value);
@@ -117,6 +121,10 @@ export const usePaymentsStore = defineStore('payments', () => {
     storeError.value = message;
   };
 
+  const clearError = () => {
+    storeError.value = null;
+  };
+
   return { 
     payments: allUserPayments, // Expose all payments for the current user
     loading: computed(() => storeLoading.value),
@@ -125,8 +133,9 @@ export const usePaymentsStore = defineStore('payments', () => {
     getPaymentsByCustomerId, // Getter to filter payments by customer ID
     addPayment, 
     deletePayment,
-    totalPaidForCustomer,
+    totalPaidForCustomerNIS, // Renamed for clarity
     fetchPayments, // Add this method
     setError, // Add this method
+    clearError, // Add clearError method
   };
 });

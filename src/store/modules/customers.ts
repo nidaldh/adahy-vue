@@ -15,6 +15,22 @@ export interface Animal {
   compositeKey: string; 
 }
 
+export interface PaymentPart {
+  id: string; // Unique ID for this part of the payment
+  amount: number;
+  currency: 'NIS' | 'JOD' | 'USD';
+  nisEquivalent?: number; // Required if currency is JOD or USD
+}
+
+export interface PaymentDetail {
+  id: string; // Unique ID for the overall payment transaction
+  parts: PaymentPart[]; // Array of payment parts
+  totalTransactionNIS: number; // Sum of nisEquivalent for all parts in this transaction
+  paymentDate: number; // Timestamp for the transaction
+  method?: 'cash' | 'bank_transfer' | 'card' | 'online' | 'cheque' | 'other'; // Optional: payment method for the transaction
+  notes?: string; // Optional: notes for the transaction
+}
+
 export interface Customer {
   id: string; 
   name: string;
@@ -22,17 +38,27 @@ export interface Customer {
   address?: string; // Add address field
   notes?: string;   // Add notes field
   animals: Animal[];
-  totalAmount: number; 
-  totalPayments: number; 
-  balance: number; 
+  totalAmount: number; // Total due from animals
+  payments: PaymentDetail[]; // Array of payment transactions
+  totalPaidNIS: number; // Sum of all totalTransactionNIS from all PaymentDetail objects
+  balance: number; // totalAmount - totalPaidNIS
   createdAt?: number;
   updatedAt?: number;
 }
 
-export type NewCustomerData = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'totalPayments' | 'balance'> & {
-  animals: Array<Omit<Animal, 'id' | 'total' | 'compositeKey'> & Partial<Pick<Animal, 'id' | 'status'>>>
+export type NewCustomerData = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'totalPaidNIS' | 'balance'> & {
+  animals: Array<Omit<Animal, 'id' | 'total' | 'compositeKey'> & Partial<Pick<Animal, 'id' | 'status'>>>;
+  payments?: Array<Omit<PaymentDetail, 'id' | 'totalTransactionNIS'> & { // totalTransactionNIS will be calculated
+    parts: Array<Omit<PaymentPart, 'id'> & Partial<Pick<PaymentPart, 'id'>>>;
+  } & Partial<Pick<PaymentDetail, 'id'>>>;
 };
-export type UpdateCustomerData = Partial<Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'balance' | 'totalPayments'>> & { id: string };
+
+export type UpdateCustomerData = Partial<Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'balance' | 'totalPaidNIS'>> & {
+  id: string;
+  payments?: Array<Omit<PaymentDetail, 'id' | 'totalTransactionNIS'> & { // totalTransactionNIS will be calculated
+    parts: Array<Omit<PaymentPart, 'id'> & Partial<Pick<PaymentPart, 'id'>>>;
+  } & Partial<Pick<PaymentDetail, 'id'>>>;
+};
 
 
 export const useCustomersStore = defineStore('customers', () => {
@@ -63,6 +89,24 @@ export const useCustomersStore = defineStore('customers', () => {
   watch(firebaseError, (newError) => {
     storeError.value = newError ? newError.message : null;
   }, { immediate: true });
+
+  // Helper function to calculate total NIS for a single transaction's parts
+  const calculateTransactionNISTotal = (parts: PaymentPart[]): number => {
+    return parts.reduce((sum, part) => {
+      if (part.currency === 'NIS') {
+        return sum + (part.amount || 0);
+      }
+      // For JOD/USD, use nisEquivalent. Ensure it's provided or default to 0.
+      return sum + (part.nisEquivalent || 0);
+    }, 0);
+  };
+
+  // Helper function to calculate total paid in NIS from all transactions
+  const calculateTotalPaidNIS = (payments: PaymentDetail[]): number => {
+    return payments.reduce((sum, payment) => {
+      return sum + (payment.totalTransactionNIS || 0);
+    }, 0);
+  };
 
   watch(() => authStore.userId, (newUserId) => {
     if (newUserId) {
@@ -96,12 +140,29 @@ export const useCustomersStore = defineStore('customers', () => {
         };
       });
 
+      const processedPayments: PaymentDetail[] = (customerData.payments || []).map(p => {
+        const partsWithIds = p.parts.map(part => ({
+          ...part,
+          id: part.id || crypto.randomUUID(),
+        }));
+        const totalTransactionNIS = calculateTransactionNISTotal(partsWithIds);
+        return {
+          ...p,
+          id: p.id || crypto.randomUUID(),
+          parts: partsWithIds,
+          totalTransactionNIS,
+          paymentDate: p.paymentDate || Date.now(),
+        };
+      });
+      const totalPaidNIS = calculateTotalPaidNIS(processedPayments);
+
       const newCustomer: Omit<Customer, 'id'> = {
         ...customerData,
         animals: processedAnimals,
+        payments: processedPayments,
         totalAmount,
-        totalPayments: 0,
-        balance: totalAmount,
+        totalPaidNIS,
+        balance: totalAmount - totalPaidNIS,
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
@@ -146,9 +207,26 @@ export const useCustomersStore = defineStore('customers', () => {
         newTotalAmount = currentTotalAmountForAnimals;
       }
       
-      const totalPayments = existingCustomer.totalPayments || 0;
+      let processedPayments: PaymentDetail[] = existingCustomer.payments || [];
+      if (customerData.payments && Array.isArray(customerData.payments)) {
+        processedPayments = customerData.payments.map(p => {
+          const partsWithIds = p.parts.map(part => ({
+            ...part,
+            id: part.id || crypto.randomUUID(),
+          }));
+          const totalTransactionNIS = calculateTransactionNISTotal(partsWithIds);
+          return {
+            ...p,
+            id: p.id || crypto.randomUUID(),
+            parts: partsWithIds,
+            totalTransactionNIS,
+            paymentDate: p.paymentDate || Date.now(),
+          };
+        });
+      }
+      const newTotalPaidNIS = calculateTotalPaidNIS(processedPayments);
       const finalTotalAmount = customerData.totalAmount !== undefined ? customerData.totalAmount : newTotalAmount;
-      const newBalance = finalTotalAmount - totalPayments;
+      const newBalance = finalTotalAmount - newTotalPaidNIS;
 
       const updatePayload: Partial<Omit<Customer, 'id'>> = { ...customerData }; 
       delete (updatePayload as any).id; 
@@ -156,7 +234,11 @@ export const useCustomersStore = defineStore('customers', () => {
       if (customerData.animals && Array.isArray(customerData.animals)) {
         updatePayload.animals = processedAnimals;
       }
+      if (customerData.payments && Array.isArray(customerData.payments)) {
+        updatePayload.payments = processedPayments;
+      }
       updatePayload.totalAmount = finalTotalAmount;
+      updatePayload.totalPaidNIS = newTotalPaidNIS;
       updatePayload.balance = newBalance;
       updatePayload.updatedAt = Date.now();
 
@@ -184,17 +266,35 @@ export const useCustomersStore = defineStore('customers', () => {
     storeError.value = message; 
   };
 
-  const updateCustomerFinancials = async (customerId: string, paymentAmountDelta: number) => {
+  const clearError = () => {
+    localSetError(null);
+  };
+
+  // This function might need to be re-evaluated or removed if payments are handled directly through updateCustomer
+  /*
+  const updateCustomerFinancials = async (customerId: string, paymentDetails: PaymentDetail) => {
     if (!authStore.userId) {
       localSetError("User not authenticated. Cannot update financials.");
       throw new Error("User not authenticated for financial update");
     }
     const customer = storeCustomers.value.find(c => c.id === customerId);
     if (customer) {
-      const newTotalPayments = (customer.totalPayments || 0) + paymentAmountDelta;
-      const newBalance = customer.totalAmount - newTotalPayments;
+      const updatedPayments = [...(customer.payments || []), { 
+        ...paymentDetails, 
+        id: paymentDetails.id || crypto.randomUUID(), 
+        paymentDate: paymentDetails.paymentDate || Date.now(),
+        // Ensure totalTransactionNIS is calculated for the new payment detail
+        totalTransactionNIS: calculateTransactionNISTotal(paymentDetails.parts.map(part => ({...part, id: part.id || crypto.randomUUID()})))
+      }];
+      const newTotalPaidNIS = calculateTotalPaidNIS(updatedPayments);
+      const newBalance = customer.totalAmount - newTotalPaidNIS;
       try {
-        await firebaseUpdateData(customerId, { totalPayments: newTotalPayments, balance: newBalance, updatedAt: Date.now() });
+        await firebaseUpdateData(customerId, { 
+          payments: updatedPayments, 
+          totalPaidNIS: newTotalPaidNIS, 
+          balance: newBalance, 
+          updatedAt: Date.now() 
+        });
       } catch (err: any) {
         localSetError(`Failed to update financials for customer ${customerId}: ${err.message}`);
         throw err; 
@@ -204,6 +304,7 @@ export const useCustomersStore = defineStore('customers', () => {
       throw new Error(`Customer ${customerId} not found for financial update.`);
     }
   };
+  */
 
   const getCustomerById = computed(() => {
     return (id: string) => storeCustomers.value.find(c => c.id === id) || null;
@@ -231,9 +332,27 @@ export const useCustomersStore = defineStore('customers', () => {
     addCustomer,
     updateCustomer,
     deleteCustomer,
-    updateCustomerFinancials,
     getCustomerById,
     setError: localSetError, // Expose the local error setter
+    clearError, // Expose the clearError function
     fetchCustomers, // Add this method
+    // Add fetchCustomerById if it's not implicitly covered or needed directly
+    fetchCustomerById: async (id: string): Promise<Customer | null> => {
+      if (!authStore.userId) {
+        localSetError("User not authenticated. Cannot fetch customer.");
+        return null;
+      }
+      // Attempt to get from local store first
+      const localCustomer = storeCustomers.value.find(c => c.id === id);
+      if (localCustomer) return localCustomer;
+
+      // If not found, and assuming useFirebaseDB might not have a direct single fetch by ID method exposed here,
+      // this might require either enhancing useFirebaseDB or relying on the subscription to eventually populate it.
+      // For now, we'll rely on the existing subscription and local find.
+      // A more direct fetch from Firebase might be needed if the customer isn't in the local cache.
+      // This is a placeholder for potential direct fetch logic if needed.
+      console.warn(`Customer with ID ${id} not found in local store. Ensure data is fetched.`);
+      return null; // Or trigger a specific fetch if available
+    },
   };
 });

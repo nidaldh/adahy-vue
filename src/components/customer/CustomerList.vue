@@ -74,7 +74,7 @@ const onEditCustomer = (customer: Customer) => {
 };
 
 const onViewPayments = (customerId: string) => {
-  router.push({ name: 'PaymentManagement', query: { customerId: customerId } });
+  router.push({ name: 'PaymentList', query: { customerId: customerId } });
 };
 
 const confirmDelete = async (customerId: string) => {

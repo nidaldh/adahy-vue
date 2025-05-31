@@ -23,9 +23,10 @@
 import { ref } from 'vue';
 
 const tabs = ref([
-  { label: 'إدارة العملاء والأضاحي', name: 'CustomerManagement', path: '/customers' },
-  { label: 'إدارة المدفوعات', name: 'PaymentManagement', path: '/payments' },
-  { label: 'كشف الرصيد', name: 'Reports', path: '/reports' },
+  { label: 'إدارة العملاء والأضاحي', name: 'CustomerList', path: '/customer-list' },
+  { label: 'قائمة المدفوعات', name: 'PaymentList', path: '/payments/list' },
+  { label: 'إضافة دفعة', name: 'PaymentForm', path: '/payments/add' },
+  { label: 'التقارير', name: 'Reports', path: '/reports' },
 ]);
 
 </script>

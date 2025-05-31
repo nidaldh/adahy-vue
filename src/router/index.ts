@@ -2,6 +2,8 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../store/modules/auth';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import AddCustomerPage from '@/views/AddCustomerPage.vue';
+import CustomerListPage from '@/views/CustomerListPage.vue';
 
 const routes: Array<RouteRecordRaw> = [
     {
@@ -13,18 +15,41 @@ const routes: Array<RouteRecordRaw> = [
     {
         path: '/',
         component: () => import('@/views/DashboardPage.vue'),
-        redirect: '/customers', // Default tab
+        redirect: '/customer-list', // Changed default redirect to customer list
         meta: { requiresAuth: true },
         children: [
             {
-                path: 'customers',
-                name: 'CustomerManagement',
-                component: () => import('@/views/CustomerManagementPage.vue'),
+                path: 'add-customer',
+                name: 'AddCustomer',
+                component: AddCustomerPage,
+                meta: { requiresAuth: true },
+            },
+            {
+                path: 'edit-customer/:id',
+                name: 'EditCustomer',
+                component: AddCustomerPage, // Reusing AddCustomerPage for editing
+                meta: { requiresAuth: true },
+                props: true, // Pass route params as props
+            },
+            {
+                path: 'customer-list',
+                name: 'CustomerList',
+                component: CustomerListPage,
+                meta: { requiresAuth: true },
             },
             {
                 path: 'payments',
-                name: 'PaymentManagement',
-                component: () => import('@/views/PaymentManagementPage.vue'),
+                redirect: { name: 'PaymentList' },
+            },
+            {
+                path: 'payments/list',
+                name: 'PaymentList',
+                component: () => import('@/views/PaymentListPage.vue'),
+            },
+            {
+                path: 'payments/add',
+                name: 'PaymentForm',
+                component: () => import('@/views/PaymentFormPage.vue'),
             },
             {
                 path: 'reports',
@@ -66,7 +91,7 @@ router.beforeEach(async (to, _from, next) => {
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
         next({ name: 'Login', query: { redirect: to.fullPath } });
     } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
-        next({ name: 'Dashboard' }); // Redirect to default dashboard child route
+        next({ name: 'CustomerList' }); // Redirect to customer list for authenticated guests
     } else {
         next();
     }

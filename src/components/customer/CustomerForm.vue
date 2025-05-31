@@ -41,6 +41,39 @@
         </button>
       </fieldset>
 
+      <fieldset>
+        <legend>بيانات الدفع</legend>
+        <div v-for="(payment, index) in formData.payments" :key="payment.id" class="payment-entry">
+          <div class="payment-row">
+            <div class="form-group payment-group">
+              <label :for="`paymentAmount-${index}`">المبلغ</label>
+              <input :id="`paymentAmount-${index}`" type="number" v-model.number="payment.amount" placeholder="المبلغ" min="0" step="any" />
+            </div>
+            <div class="form-group payment-group">
+              <label :for="`paymentCurrency-${index}`">العملة</label>
+              <select :id="`paymentCurrency-${index}`" v-model="payment.currency" @change="handlePaymentCurrencyChange(payment, index)">
+                <option value="NIS">شيكل (NIS)</option>
+                <option value="JOD">دينار أردني (JOD)</option>
+                <option value="USD">دولار أمريكي (USD)</option>
+              </select>
+            </div>
+            <div class="form-group payment-group" v-if="payment.currency === 'JOD' || payment.currency === 'USD'">
+              <label :for="`paymentNisEquivalent-${index}`">المقابل بالشيكل <span class="required-star">*</span></label>
+              <input :id="`paymentNisEquivalent-${index}`" type="number" v-model.number="payment.nisEquivalent" placeholder="القيمة بالشيكل" min="0" step="any" required />
+            </div>
+            <button type="button" @click="removePaymentPart(index)" class="btn btn-danger remove-payment-btn" v-if="formData.payments.length > 1">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+        <button type="button" @click="addPaymentPart" class="btn btn-secondary btn-add-payment">
+          <i class="fas fa-plus"></i> إضافة جزء دفع
+        </button>
+        <div class="total-payment-display" v-if="formData.payments.length > 0">
+          إجمالي المدفوع (شيكل): {{ totalPaymentInNIS.toFixed(2) }}
+        </div>
+      </fieldset>
+
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="customersStore.loading">
           {{ editMode ? 'تحديث البيانات' : 'حفظ العميل' }}
@@ -54,8 +87,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, type PropType } from 'vue';
-import { useCustomersStore, type Customer, type Animal } from '@/store/modules/customers';
+import { ref, watch, type PropType, computed } from 'vue';
+import { useCustomersStore, type Customer, type Animal, type PaymentDetail, type NewCustomerData, type UpdateCustomerData } from '@/store/modules/customers';
 import AnimalForm from '@/components/animal/AnimalForm.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ErrorMessage from '@/components/common/ErrorMessage.vue';
@@ -73,7 +106,7 @@ const emit = defineEmits(['customer-saved']);
 const customersStore = useCustomersStore();
 const editMode = ref(false);
 
-const initialAnimal = (): Animal => ({
+const initialAnimal = (): Omit<Animal, 'total' | 'compositeKey'> & Partial<Pick<Animal, 'id' | 'status'>> => ({
   id: uuidv4(), // Temporary client-side ID for v-for key
   type: '',
   number: '',
@@ -81,18 +114,37 @@ const initialAnimal = (): Animal => ({
   price: 0,
   total: 0,
   status: 'حي',
-  compositeKey: ''
+  // compositeKey is calculated on submit
 });
 
-const initialFormData = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'balance' | 'totalPayments'> => ({
+const initialPaymentDetail = (): Omit<PaymentDetail, 'id'> & Partial<Pick<PaymentDetail, 'id'>> => ({
+  id: uuidv4(),
+  amount: 0,
+  currency: 'NIS',
+  nisEquivalent: undefined, // Undefined initially, to be filled if currency is not NIS
+  paymentDate: Date.now(),
+});
+
+const initialFormData = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'balance' | 'totalPaidNIS'> & { payments: Array<Omit<PaymentDetail, 'id'> & Partial<Pick<PaymentDetail, 'id'>>> } => ({
   name: '',
   phone: '',
   address: '',
   notes: '',
   animals: [initialAnimal()],
+  payments: [initialPaymentDetail()], // Initialize with one payment part
 });
 
 const formData = ref(initialFormData());
+
+// Computed property to calculate total NIS from payments
+const totalPaymentInNIS = computed(() => {
+  return formData.value.payments.reduce((acc, payment) => {
+    if (payment.currency === 'NIS') {
+      return acc + (Number(payment.amount) || 0);
+    }
+    return acc + (Number(payment.nisEquivalent) || 0);
+  }, 0);
+});
 
 watch(() => props.customerToEdit, (newVal) => {
   if (newVal) {
@@ -102,7 +154,12 @@ watch(() => props.customerToEdit, (newVal) => {
       phone: newVal.phone || '',
       address: newVal.address || '',
       notes: newVal.notes || '',
-      animals: newVal.animals && newVal.animals.length > 0 ? newVal.animals.map(a => ({ ...a, id: a.id || uuidv4() })) : [initialAnimal()]
+      animals: newVal.animals && newVal.animals.length > 0 
+                 ? newVal.animals.map(a => ({ ...a, id: a.id || uuidv4() })) 
+                 : [initialAnimal()],
+      payments: newVal.payments && newVal.payments.length > 0 
+                  ? newVal.payments.map(p => ({ ...p, id: p.id || uuidv4(), nisEquivalent: p.currency !== 'NIS' ? p.nisEquivalent : undefined })) 
+                  : [initialPaymentDetail()],
     };
   } else {
     // This condition is met when creating a new customer or after 'Cancel Edit'
@@ -123,6 +180,29 @@ const removeAnimal = (index: number) => {
   formData.value.animals.splice(index, 1);
 };
 
+const addPaymentPart = () => {
+  formData.value.payments.push(initialPaymentDetail());
+};
+
+const removePaymentPart = (index: number) => {
+  if (formData.value.payments.length > 1) { // Keep at least one payment part
+    formData.value.payments.splice(index, 1);
+  } else {
+    // Optionally, reset the single payment part if removal is attempted
+    formData.value.payments[0] = initialPaymentDetail();
+  }
+};
+
+const handlePaymentCurrencyChange = (payment: Omit<PaymentDetail, 'id'> & Partial<Pick<PaymentDetail, 'id'>>, index: number) => {
+  if (payment.currency === 'NIS') {
+    formData.value.payments[index].nisEquivalent = undefined; // Clear NIS equivalent if currency is NIS
+    formData.value.payments[index].amount = formData.value.payments[index].amount || 0; // Ensure amount is a number
+  } else {
+    // If switching to JOD/USD, ensure nisEquivalent is a number (or 0 if not yet set)
+    formData.value.payments[index].nisEquivalent = formData.value.payments[index].nisEquivalent || 0;
+  }
+};
+
 const handleSubmit = async () => {
   if (!formData.value.name) {
     customersStore.setError("اسم العميل مطلوب.");
@@ -135,14 +215,37 @@ const handleSubmit = async () => {
     compositeKey: `${animal.type}-${animal.number}` // Ensure type and number are present
   }));
 
+  const processedPayments = formData.value.payments.map(payment => {
+    const amount = Number(payment.amount) || 0;
+    let nisEquivalent = payment.currency === 'NIS' ? amount : (Number(payment.nisEquivalent) || 0);
+
+    if ((payment.currency === 'JOD' || payment.currency === 'USD') && nisEquivalent <= 0 && amount > 0) {
+      customersStore.setError(`يجب إدخال القيمة المعادلة بالشيكل بشكل صحيح للدفعات بـ ${payment.currency} للدفعة بقيمة ${amount}.`);
+      throw new Error("NIS equivalent is required and must be positive for JOD/USD payments if amount is positive.");
+    }
+    // If currency is NIS, nisEquivalent should be undefined in the store
+    if (payment.currency === 'NIS') {
+      nisEquivalent = undefined as any; // Casting to any to satisfy the type, it will be undefined
+    }
+
+    return {
+      ...payment,
+      id: payment.id || uuidv4(),
+      amount: amount,
+      nisEquivalent: nisEquivalent,
+      paymentDate: payment.paymentDate || Date.now(),
+    } as PaymentDetail; // Ensure the object matches PaymentDetail structure
+  });
+
   const customerDataPayload = {
     ...formData.value,
-    animals: processedAnimals
-  };
+    animals: processedAnimals,
+    payments: processedPayments,
+  } as NewCustomerData; // Cast to ensure type compatibility, store will calculate totals
 
   try {
     if (editMode.value && props.customerToEdit?.id) {
-      await customersStore.updateCustomer({ ...customerDataPayload, id: props.customerToEdit.id });
+      await customersStore.updateCustomer({ ...customerDataPayload, id: props.customerToEdit.id } as UpdateCustomerData);
     } else {
       await customersStore.addCustomer(customerDataPayload);
     }
@@ -243,6 +346,33 @@ fieldset {
   align-items: center;
   gap: 5px;
   i { font-size: 0.8em; }
+}
+.payment-entry {
+  border: 1px solid #ddd;
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+.payment-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.payment-group {
+  flex: 1;
+}
+.btn-add-payment {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  i { font-size: 0.8em; }
+}
+.total-payment-display {
+  margin-top: 10px;
+  font-weight: bold;
+  text-align: right;
 }
 .form-actions {
   display: flex;
