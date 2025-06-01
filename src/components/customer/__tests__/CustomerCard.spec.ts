@@ -24,6 +24,7 @@ const createMockCustomer = (): Customer => ({
     }
   ],
   totalAmount: 1500,
+  finalTotalAmount: 1500,
   payments: [],
   totalPaidNIS: 500,
   balance: 1000

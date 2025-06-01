@@ -15,6 +15,7 @@ const mockCustomers: Customer[] = [
     animals: [],
     payments: [],
     totalAmount: 2000,
+    finalTotalAmount: 2000,
     totalPaidNIS: 500,
     createdAt: Date.now()
   },
@@ -26,6 +27,7 @@ const mockCustomers: Customer[] = [
     animals: [],
     payments: [],
     totalAmount: 3000,
+    finalTotalAmount: 3000,
     totalPaidNIS: 1000,
     createdAt: Date.now()
   }

@@ -239,9 +239,10 @@ const totalWeight = computed(() => {
   return filteredAnimals.value.reduce((sum, animal) => sum + animal.weight, 0);
 });
 
-const totalValue = computed(() => {
-  return filteredAnimals.value.reduce((sum, animal) => sum + animal.total, 0);
-});
+// Total value computation (commented out as not currently used)
+// const totalValue = computed(() => {
+//   return filteredAnimals.value.reduce((sum, animal) => sum + animal.total, 0);
+// });
 
 // Methods
 const getStatusClass = (status: string) => {
@@ -254,13 +255,14 @@ const getStatusClass = (status: string) => {
   }
 };
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('ar-PS', {
-    style: 'currency',
-    currency: 'ILS',
-    minimumFractionDigits: 2
-  }).format(amount);
-};
+// Currency formatting function (commented out as not currently used)
+// const formatCurrency = (amount: number): string => {
+//   return new Intl.NumberFormat('ar-PS', {
+//     style: 'currency',
+//     currency: 'ILS',
+//     minimumFractionDigits: 2
+//   }).format(amount);
+// };
 
 const navigateToCustomerRelationships = (customerId: string, animalId?: string) => {
   const query: Record<string, string> = { customerId };
