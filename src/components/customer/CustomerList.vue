@@ -19,33 +19,52 @@
     <error-message v-if="customersStore.error" :message="customersStore.error" />
 
     <div v-if="!customersStore.loading && !customersStore.customers.length && !customersStore.error" class="empty-state">
-      <p>لا يوجد عملاء لعرضهم حالياً. قم بإضافة عميل جديد من النموذج أعلاه.</p>
+      <p>لا يوجد عملاء لعرضهم حالياً. قم بإضافة عميل جديد.</p>
     </div>
 
-    <div class="customer-grid" v-if="filteredCustomers.length">
-      <customer-card
-        v-for="customer in filteredCustomers"
-        :key="customer.id"
-        :customer="customer"
-        @edit-customer="onEditCustomer"
-        @view-payments="onViewPayments"
-        @delete-customer="confirmDelete"
-      />
+    <div class="table-responsive" v-if="filteredCustomers.length">
+      <table class="customer-table">
+        <thead>
+          <tr>
+            <th>الاسم</th>
+            <th>الهاتف</th>
+            <th>عدد الأضاحي</th>
+            <th>ملاحظات</th>
+            <th>إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="customer in filteredCustomers" :key="customer.id">
+            <td>{{ customer.name }}</td>
+            <td>{{ customer.phone || '-' }}</td>
+            <td>{{ customer.animals?.length || 0 }}</td>
+            <td class="notes-cell">
+              <span v-if="customer.notes" :title="customer.notes">
+                {{ customer.notes.substring(0, 50) }}{{ customer.notes.length > 50 ? '...' : '' }}
+              </span>
+              <span v-else>-</span>
+            </td>
+            <td>
+              <button @click="navigateToCustomerRelationships(customer.id)" class="btn btn-info btn-sm">
+                <i class="fas fa-info-circle"></i> تفاصيل
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue';
-import { useCustomersStore, type Customer } from '@/store/modules/customers';
-import CustomerCard from '@/components/customer/CustomerCard.vue';
+import { useCustomersStore } from '@/store/modules/customers';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ErrorMessage from '@/components/common/ErrorMessage.vue';
 import { useRouter } from 'vue-router';
 import { useDebounce } from '@/composables/usePerformance';
 
 const customersStore = useCustomersStore();
-const emit = defineEmits(['edit-customer']);
 const router = useRouter();
 
 // Search functionality with debouncing
@@ -61,7 +80,8 @@ const filteredCustomers = computed(() => {
   const query = debouncedSearchQuery.value.toLowerCase();
   return customersStore.customers.filter(customer => 
     customer.name.toLowerCase().includes(query) ||
-    customer.phone?.includes(query)
+    (customer.phone && customer.phone.includes(query)) ||
+    (customer.notes && customer.notes.toLowerCase().includes(query))
   );
 });
 
@@ -69,29 +89,13 @@ const fetchWrapper = async () => {
   await customersStore.fetchCustomers();
 };
 
-const onEditCustomer = (customer: Customer) => {
-  emit('edit-customer', customer);
-};
-
-const onViewPayments = (customerId: string) => {
-  router.push({ name: 'PaymentList', query: { customerId: customerId } });
-};
-
-const confirmDelete = async (customerId: string) => {
-  if (window.confirm('هل أنت متأكد من رغبتك في حذف هذا العميل وجميع بياناته المتعلقة؟ لا يمكن التراجع عن هذا الإجراء.')) {
-    try {
-      await customersStore.deleteCustomer(customerId);
-      // Optionally, show a success message
-      fetchWrapper(); // Refresh list
-    } catch (error) {
-      // Error should be set in store and displayed by ErrorMessage
-      console.error("Failed to delete customer:", error);
-    }
-  }
+const navigateToCustomerRelationships = (customerId: string) => {
+  router.push({ name: 'CustomerRelationships', query: { customerId: customerId } });
 };
 
 onMounted(() => {
-  if (!customersStore.customers.length || customersStore.lastFetchTimestamp === 0) { // Assuming lastFetchTimestamp in store
+  // Fetch customers if the list is empty or hasn't been fetched recently
+  if (!customersStore.customers.length || customersStore.lastFetchTimestamp === 0) {
     fetchWrapper();
   }
 });
@@ -128,7 +132,7 @@ h3 {
 
 .search-input {
   width: 100%;
-  padding: 10px 40px 10px 15px;
+  padding: 10px 40px 10px 15px; // Adjusted padding for RTL search icon
   border: 1px solid #ddd;
   border-radius: 5px;
   font-size: 14px;
@@ -143,17 +147,53 @@ h3 {
 
 .search-icon {
   position: absolute;
-  left: 15px;
+  left: 15px; // Icon on the left for RTL input
   top: 50%;
   transform: translateY(-50%);
   color: #777;
   pointer-events: none;
 }
-.customer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
+
+.table-responsive {
+  overflow-x: auto; // Allows table to scroll horizontally on small screens
 }
+
+.customer-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-size: 0.9rem;
+
+  th, td {
+    border: 1px solid #e0e0e0;
+    padding: 10px 12px;
+    text-align: right; // RTL default
+    vertical-align: middle;
+  }
+
+  th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #333;
+  }
+
+  tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+  }
+
+  tbody tr:hover {
+    background-color: #f1f1f1;
+  }
+
+  .notes-cell {
+    max-width: 250px; // Limit width of notes column
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help; // Indicate that full notes are available on hover/title
+  }
+}
+
 .empty-state {
   text-align: center;
   padding: 30px;
@@ -164,15 +204,20 @@ h3 {
 }
 
 .btn {
-  padding: 10px 15px;
+  padding: 8px 12px;
   border-radius: 5px;
   border: none;
   cursor: pointer;
   font-weight: 500;
-  transition: background-color 0.2s ease-in-out;
+  transition: background-color 0.2s ease-in-out, transform 0.1s ease;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 0.85rem; // Slightly smaller buttons for table
+
+  &:hover {
+    transform: translateY(-1px);
+  }
 }
 .btn-secondary {
   background-color: #6c757d;
@@ -180,6 +225,16 @@ h3 {
   &:hover { background-color: darken(#6c757d, 10%); }
   &:disabled { background-color: #aaa; cursor: not-allowed; }
 }
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+  &:hover { background-color: darken(#17a2b8, 10%); }
+}
+.btn-sm {
+  padding: 0.3rem 0.7rem; // Adjusted padding for better fit in table
+  font-size: .8rem;
+}
+
 .card-style {
     background-color: #fff;
     padding: 20px;

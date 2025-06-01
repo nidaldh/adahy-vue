@@ -1,10 +1,5 @@
 <template>
   <div class="customer-animal-relationship-page" dir="rtl">
-    <div class="page-header">
-      <h1><i class="fas fa-link"></i> إدارة أضاحي العملاء</h1>
-      <p class="page-description">اختيار وإدارة الأضاحي للعملاء الحاليين</p>
-    </div>
-
     <div class="main-content">
       <!-- Customer Selection Section -->
       <div class="customer-selection-section card-style">
@@ -19,6 +14,7 @@
       <div v-if="selectedCustomer" class="customer-sacrifice-management">
         <CustomerSacrificeManager 
           :selected-customer="selectedCustomer"
+          @dataUpdated="handleDataUpdated"
         />
       </div>
 
@@ -35,20 +31,80 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import CustomerSelector from '@/components/relationship/CustomerSelector.vue';
 import CustomerSacrificeManager from '@/components/relationship/CustomerSacrificeManager.vue';
-import type { Customer } from '@/store/modules/customers';
+import { useCustomersStore, type Customer } from '@/store/modules/customers';
 
 const selectedCustomer = ref<Customer | null>(null);
+const route = useRoute();
+const customersStore = useCustomersStore();
 
 const onCustomerSelected = (customer: Customer) => {
   selectedCustomer.value = customer;
+  // Optional: Update URL if selection changes, though current flow is one-way (route -> selection)
 };
 
 const onCustomerCleared = () => {
   selectedCustomer.value = null;
+  // Optional: Clear URL query param if customer is cleared
 };
+
+const loadCustomerFromRoute = async (isRefreshAfterUpdate = false) => {
+  const customerIdFromRoute = route.query.customerId as string;
+
+  if (customerIdFromRoute) {
+    let customer = customersStore.getCustomerById(customerIdFromRoute);
+
+    // If not a refresh after update, and customer not found, and store is empty, try fetching all customers.
+    if (!isRefreshAfterUpdate && !customer && customersStore.customers.length === 0 && !customersStore.loading) {
+      console.log(`Customer ${customerIdFromRoute} not in empty store, fetching all customers.`);
+      await customersStore.fetchCustomers();
+      customer = customersStore.getCustomerById(customerIdFromRoute); // Try getting again
+    }
+
+    if (customer) {
+      selectedCustomer.value = { ...customer }; // Use a new object for reactivity
+      if (isRefreshAfterUpdate) {
+        console.log(`Selected customer ${customerIdFromRoute} data refreshed from store.`);
+      }
+    } else {
+      // Customer not found
+      if (isRefreshAfterUpdate) {
+        // This is problematic: data was supposedly updated in store, but not found.
+        // This indicates a potential issue in how store actions update the local state.
+        console.error(`CRITICAL: Customer ${customerIdFromRoute} not found in store after data update event. Clearing selection.`);
+        selectedCustomer.value = null;
+      } else {
+        // Navigated with a customerId, but customer not found (even after potential fetchCustomers if store was empty)
+        console.warn(`Customer ${customerIdFromRoute} not found. Clearing selection.`);
+        selectedCustomer.value = null;
+      }
+    }
+  } else {
+    // No customerId in route
+    selectedCustomer.value = null;
+  }
+};
+
+const handleDataUpdated = () => {
+  console.log('dataUpdated event received in CustomerAnimalRelationshipPage. Refreshing customer data...');
+  loadCustomerFromRoute(true); // Pass true for isRefreshAfterUpdate
+};
+
+onMounted(() => {
+  loadCustomerFromRoute();
+});
+
+// Watch for changes in route query if the user navigates to this page
+// with a different customerId without full page reload.
+watch(() => route.query.customerId, (newCustomerId, oldCustomerId) => {
+  if (newCustomerId !== oldCustomerId) {
+    loadCustomerFromRoute();
+  }
+});
+
 </script>
 
 <style scoped lang="scss">

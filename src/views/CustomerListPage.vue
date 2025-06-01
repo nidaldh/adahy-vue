@@ -1,6 +1,5 @@
 <template>
   <div class="customer-list-page" dir="rtl">
-    <h2>Customer List</h2>
     <div class="actions">
       <router-link to="/add-customer" class="add-button">Add New Customer</router-link>
     </div>

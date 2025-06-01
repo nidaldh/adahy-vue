@@ -64,44 +64,6 @@
         </div>
       </div>
       
-      <!-- Selected Customer Display -->
-      <div v-if="selectedCustomer" class="selected-customer-display">
-        <div class="selected-customer-card">
-          <div class="customer-header">
-            <div class="customer-main-info">
-              <h4><i class="fas fa-user-check"></i> {{ selectedCustomer.name }}</h4>
-              <p v-if="selectedCustomer.phone" class="phone">
-                <i class="fas fa-phone"></i>
-                {{ selectedCustomer.phone }}
-              </p>
-            </div>
-            <button @click="clearSelection" class="change-customer-btn">
-              <i class="fas fa-exchange-alt"></i>
-              تغيير العميل
-            </button>
-          </div>
-          
-          <div class="customer-stats">
-            <div class="stat-item">
-              <i class="fas fa-sheep"></i>
-              <span class="stat-label">عدد الأضاحي:</span>
-              <span class="stat-value">{{ selectedCustomer.animals?.length || 0 }}</span>
-            </div>
-            <div class="stat-item">
-              <i class="fas fa-money-bill-wave"></i>
-              <span class="stat-label">المبلغ الإجمالي:</span>
-              <span class="stat-value">{{ formatCurrency(selectedCustomer.totalAmount) }}</span>
-            </div>
-            <div class="stat-item">
-              <i class="fas fa-wallet"></i>
-              <span class="stat-label">الرصيد:</span>
-              <span class="stat-value" :class="getBalanceClass(selectedCustomer.balance)">
-                {{ formatCurrency(selectedCustomer.balance) }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>

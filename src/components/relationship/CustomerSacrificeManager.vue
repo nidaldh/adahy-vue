@@ -1,7 +1,6 @@
 <template>
   <div class="customer-sacrifice-manager" dir="rtl">
     <div class="manager-header">
-      <h3>إدارة أضاحي العميل</h3>
       <div v-if="selectedCustomer" class="customer-info">
         <span class="customer-name">{{ selectedCustomer.name }}</span>
         <span class="customer-phone" v-if="selectedCustomer.phone">
@@ -88,10 +87,47 @@
           v-else
           :sacrifices="customerAnimals"
           @update-status="handleUpdateStatus"
-          @remove-sacrifice="handleRemoveSacrifice"
-          @edit-sacrifice="handleEditSacrifice"
         />
       </div>
+    </div>
+
+    <!-- Financial Summary Section -->
+    <div v-if="selectedCustomer" class="financial-summary-section card-style">
+      <h4><i class="fas fa-calculator"></i> الملخص المالي للعميل</h4>
+      <div class="summary-details">
+        <div class="summary-item">
+          <span class="label">إجمالي أسعار الأضاحي:</span>
+          <span class="value total-animals-price">{{ formatCurrency(selectedCustomer.totalAmount) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">إجمالي المدفوعات:</span>
+          <span class="value total-payments">{{ formatCurrency(selectedCustomer.totalPaidNIS) }}</span>
+        </div>
+        <hr class="summary-divider">
+        <div class="summary-item balance">
+          <span class="label">الرصيد المتبقي:</span>
+          <span class="value" :class="getBalanceClass(selectedCustomer.balance)">
+            {{ formatCurrency(selectedCustomer.balance) }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer Payments List Placeholder -->
+    <div v-if="selectedCustomer" class="payments-list-section card-style">
+        <h4><i class="fas fa-money-bill-wave"></i> مدفوعات العميل</h4>
+        <!-- PaymentList component will go here once path is confirmed -->
+        <div v-if="selectedCustomer.payments && selectedCustomer.payments.length > 0">
+          <p><em>(عرض قائمة المدفوعات هنا)</em></p>
+          <ul>
+            <li v-for="payment in selectedCustomer.payments" :key="payment.id">
+              تاريخ: {{ new Date(payment.paymentDate).toLocaleDateString() }} - الإجمالي: {{ formatCurrency(payment.totalTransactionNIS) }}
+            </li>
+          </ul>
+        </div>
+        <div v-else>
+          <p><i class="fas fa-info-circle"></i> لا توجد مدفوعات مسجلة لهذا العميل.</p>
+        </div>
     </div>
 
     <!-- Confirmation Dialog -->
@@ -117,10 +153,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, defineEmits } from 'vue'; // Added defineEmits
 import { useCustomersStore } from '@/store/modules/customers';
 import SacrificeForm from './SacrificeForm.vue';
 import SacrificeList from './SacrificeList.vue';
+// import PaymentList from '@/components/payment/PaymentList.vue'; // Path to be confirmed
 import type { Customer, Animal } from '@/store/modules/customers';
 
 interface Props {
@@ -129,6 +166,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const customerStore = useCustomersStore();
+const emit = defineEmits(['dataUpdated']); // Define the event
 
 // Reactive state
 const showAddForm = ref(false);
@@ -144,6 +182,19 @@ const editingNotes = ref(false);
 const editingNotesText = ref('');
 const savingNotes = ref(false);
 const notesTextarea = ref<HTMLTextAreaElement | null>(null);
+
+// Helper function to format currency
+const formatCurrency = (value: number | undefined) => {
+  if (typeof value !== 'number' || isNaN(value)) return 'N/A';
+  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(value);
+};
+
+const getBalanceClass = (balance: number | undefined) => {
+  if (typeof balance !== 'number' || isNaN(balance)) return 'balance-zero';
+  if (balance < 0) return 'balance-credit'; // Customer paid more
+  if (balance > 0) return 'balance-debit'; // Customer owes money
+  return 'balance-zero'; // Settled
+};
 
 // Computed properties
 const customerAnimals = computed(() => {
@@ -179,7 +230,7 @@ const saveNotes = async () => {
     
     editingNotes.value = false;
     editingNotesText.value = '';
-    
+    emit('dataUpdated'); // Emit event
   } catch (error) {
     console.error('خطأ في حفظ الملاحظات:', error);
   } finally {
@@ -201,7 +252,8 @@ const handleAddSacrifice = async (animalData: Omit<Animal, 'id' | 'createdAt'>) 
     const newAnimal: Animal = {
       ...animalData,
       id: generateAnimalId(),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      notes: animalData.notes || '' // Ensure notes is an empty string if undefined or null
     };
 
     await customerStore.addAnimalToCustomer(
@@ -210,6 +262,7 @@ const handleAddSacrifice = async (animalData: Omit<Animal, 'id' | 'createdAt'>) 
     );
 
     showAddForm.value = false;
+    emit('dataUpdated'); // Emit event
     
     // Show success message (you can implement a toast/notification system)
     console.log('تم إضافة الأضحية بنجاح');
@@ -225,10 +278,27 @@ const handleAddSacrifice = async (animalData: Omit<Animal, 'id' | 'createdAt'>) 
 const handleUpdateStatus = async (animalId: string, newStatus: string) => {
   if (!props.selectedCustomer) return;
 
+  const animal = customerAnimals.value.find(a => a.id === animalId);
+  if (!animal) {
+    console.error('Animal not found for status update');
+    return;
+  }
+
   // Validate status
   const validStatuses = ['حي', 'جاهز', 'مذبوح', 'ملغي'] as const;
-  if (!validStatuses.includes(newStatus as any)) {
+  type AnimalStatus = typeof validStatuses[number];
+
+  if (!validStatuses.includes(newStatus as AnimalStatus)) {
     console.error('حالة غير صحيحة:', newStatus);
+    return;
+  }
+
+  // Restriction: Animal can only be cancelled if its current status is 'حي'
+  if (newStatus === 'ملغي' && animal.status !== 'حي') {
+    console.warn('لا يمكن إلغاء الأضحية إلا إذا كانت حالتها "حي".');
+    // Optionally, show a user-facing message here
+    alert('لا يمكن إلغاء الأضحية إلا إذا كانت حالتها "حي".');
+    emit('dataUpdated'); // Refresh to revert optimistic UI changes if any
     return;
   }
 
@@ -238,47 +308,11 @@ const handleUpdateStatus = async (animalId: string, newStatus: string) => {
     await customerStore.updateCustomerAnimal(
       props.selectedCustomer.id,
       animalId,
-      { status: newStatus as 'حي' | 'جاهز' | 'مذبوح' | 'ملغي' }
+      { status: newStatus as AnimalStatus }
     );
-    
+    emit('dataUpdated'); // Emit event
   } catch (error) {
     console.error('خطأ في تحديث حالة الأضحية:', error);
-  } finally {
-    isUpdatingAnimals.value = false;
-  }
-};
-
-const handleRemoveSacrifice = (animalId: string) => {
-  const animal = customerAnimals.value.find(a => a.id === animalId);
-  if (!animal) return;
-
-  confirmDialog.value = {
-    title: 'حذف الأضحية',
-    message: `هل أنت متأكد من حذف الأضحية (${animal.type} - ${animal.number})؟`,
-    action: () => executeRemoveAnimal(animalId)
-  };
-  
-  showConfirmDialog.value = true;
-};
-
-const handleEditSacrifice = (sacrifice: Animal) => {
-  // For now, we'll just log this - you can implement editing later
-  console.log('Edit sacrifice:', sacrifice);
-};
-
-const executeRemoveAnimal = async (animalId: string) => {
-  if (!props.selectedCustomer) return;
-
-  try {
-    isUpdatingAnimals.value = true;
-    
-    await customerStore.removeAnimalFromCustomer(
-      props.selectedCustomer.id,
-      animalId
-    );
-    
-  } catch (error) {
-    console.error('خطأ في حذف الأضحية:', error);
   } finally {
     isUpdatingAnimals.value = false;
   }
@@ -538,133 +572,240 @@ watch(() => props.selectedCustomer, (newCustomer) => {
       }
     }
   }
-}
 
-// Confirmation Dialog Styles
-.confirmation-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.confirmation-dialog {
-  background: white;
-  border-radius: 12px;
-  min-width: 400px;
-  max-width: 500px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  
-  .dialog-header {
-    padding: 20px 20px 0;
+  /* Financial Summary Section */
+  .financial-summary-section {
+    padding: 20px;
+    border-top: 1px solid #eee;
+    border-bottom: 1px solid #eee;
+    background: #f9f9f9;
     
     h4 {
-      margin: 0;
+      margin: 0 0 15px 0;
       color: #333;
-    }
-  }
-  
-  .dialog-body {
-    padding: 15px 20px;
-    
-    p {
-      margin: 0;
-      color: #666;
-      line-height: 1.5;
-    }
-  }
-  
-  .dialog-footer {
-    padding: 0 20px 20px;
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-  }
-}
-
-.customer-notes-section {
-  margin-top: 15px;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  
-  .notes-view {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    
-    .notes-content {
-      flex: 1;
+      font-size: 1.2rem;
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.9rem;
       
       i {
-        color: #f39c12;
-        font-size: 0.8rem;
+        color: #28a745;
       }
     }
-  }
-  
-  .notes-edit {
-    .notes-textarea {
-      width: 100%;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 6px;
-      padding: 10px;
-      font-size: 0.9rem;
-      resize: none;
-      background: rgba(255, 255, 255, 0.9);
-      color: #333;
-      transition: border-color 0.2s ease-in-out;
-
-      &:focus {
-        border-color: #f39c12;
-        outline: none;
-        background: #fff;
-      }
-    }
-
-    .notes-actions {
-      margin-top: 8px;
-      display: flex;
-      gap: 8px;
-    }
-
-    .notes-hint {
-      margin-top: 5px;
-      text-align: right;
-      
-      small {
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 0.75rem;
-      }
-    }
-  }
-}
-
-@media (max-width: 768px) {
-  .section-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
     
-    .summary-stats {
-      align-self: stretch;
-      justify-content: space-between;
+    .summary-details {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      
+      .summary-item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.95rem;
+        color: #555;
+        
+        .label {
+          font-weight: 500;
+        }
+        
+        .value {
+          font-weight: 700;
+          &.total-animals-price {
+            color: #007bff;
+          }
+          
+          &.total-payments {
+            color: #28a745;
+          }
+        }
+      }
+      
+      .summary-divider {
+        border: none;
+        height: 1px;
+        background: #ddd;
+        margin: 10px 0;
+      }
+      
+      .balance {
+        &.balance-credit {
+          color: #28a745;
+        }
+        
+        &.balance-debit {
+          color: #dc3545;
+        }
+        
+        &.balance-zero {
+          color: #666;
+        }
+      }
     }
   }
-  
+
+  /* Payments List Section */
+  .payments-list-section {
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+    background: #f9f9f9;
+    
+    h4 {
+      margin: 0 0 15px 0;
+      color: #333;
+      font-size: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      i {
+        color: #007bff;
+      }
+    }
+    
+    /* Placeholder styles for PaymentList component */
+    .payment-placeholder {
+      text-align: center;
+      color: #999;
+      padding: 40px 20px;
+      
+      i {
+        font-size: 2rem;
+        margin-bottom: 10px;
+        color: #007bff;
+      }
+      
+      p {
+        margin: 0;
+        font-size: 1rem;
+      }
+    }
+  }
+
+  .confirmation-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
   .confirmation-dialog {
-    margin: 20px;
-    min-width: auto;
+    background: white;
+    border-radius: 12px;
+    min-width: 400px;
+    max-width: 500px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    
+    .dialog-header {
+      padding: 20px 20px 0;
+      
+      h4 {
+        margin: 0;
+        color: #333;
+      }
+    }
+    
+    .dialog-body {
+      padding: 15px 20px;
+      
+      p {
+        margin: 0;
+        color: #666;
+        line-height: 1.5;
+      }
+    }
+    
+    .dialog-footer {
+      padding: 0 20px 20px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+  }
+
+  .customer-notes-section {
+    margin-top: 15px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    
+    .notes-view {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      
+      .notes-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        
+        i {
+          color: #f39c12;
+          font-size: 0.8rem;
+        }
+      }
+    }
+    
+    .notes-edit {
+      .notes-textarea {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 0.9rem;
+        resize: none;
+        background: rgba(255, 255, 255, 0.9);
+        color: #333;
+        transition: border-color 0.2s ease-in-out;
+
+        &:focus {
+          border-color: #f39c12;
+          outline: none;
+          background: #fff;
+        }
+      }
+
+      .notes-actions {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .notes-hint {
+        margin-top: 5px;
+        text-align: right;
+        
+        small {
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 0.75rem;
+        }
+      }
+    }
+  }
+
+  @media (max-width: 768px) {
+    .section-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 15px;
+      
+      .summary-stats {
+        align-self: stretch;
+        justify-content: space-between;
+      }
+    }
+    
+    .confirmation-dialog {
+      margin: 20px;
+      min-width: auto;
+    }
   }
 }
 </style>

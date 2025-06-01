@@ -6,22 +6,7 @@
         أضاحي العميل
         <span class="count-badge">{{ sacrifices.length }}</span>
       </h4>
-      
-      <div v-if="sacrifices.length > 0" class="list-actions">
-        <button @click="toggleSelectAll" class="btn btn-sm btn-outline">
-          <i :class="allSelected ? 'fas fa-check-square' : 'far fa-square'"></i>
-          {{ allSelected ? 'إلغاء التحديد' : 'تحديد الكل' }}
-        </button>
-        
-        <button 
-          v-if="selectedSacrifices.length > 0" 
-          @click="bulkStatusUpdate"
-          class="btn btn-sm btn-primary"
-        >
-          <i class="fas fa-edit"></i>
-          تحديث الحالة ({{ selectedSacrifices.length }})
-        </button>
-      </div>
+    
     </div>
     
     <!-- Empty State -->
@@ -73,7 +58,7 @@
                 <option value="حي">حي</option>
                 <option value="جاهز">جاهز</option>
                 <option value="مذبوح">مذبوح</option>
-                <option value="ملغي">ملغي</option>
+                <option value="ملغي" :disabled="sacrifice.status !== 'حي'">ملغي</option>
               </select>
             </div>
           </div>
@@ -113,21 +98,7 @@
         
         <!-- Actions -->
         <div class="sacrifice-actions">
-          <!-- <button 
-            @click="editSacrifice(sacrifice)"
-            class="action-btn edit-btn"
-            title="تعديل"
-          >
-            <i class="fas fa-edit"></i>
-          </button> -->
-          
-          <button 
-            @click="removeSacrifice(sacrifice.id)"
-            class="action-btn remove-btn"
-            title="حذف"
-          >
-            <i class="fas fa-trash"></i>
-          </button>
+          <!-- Edit and Delete buttons are removed -->
         </div>
       </div>
     </div>
@@ -167,8 +138,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update-status': [id: string, status: string];
-  'remove-sacrifice': [id: string];
-  'edit-sacrifice': [sacrifice: Animal];
 }>();
 
 // Selection state
@@ -209,29 +178,35 @@ const updateStatus = (id: string, newStatus: string) => {
   emit('update-status', id, newStatus);
 };
 
-const removeSacrifice = (id: string) => {
-  if (confirm('هل أنت متأكد من حذف هذه الأضحية؟')) {
-    emit('remove-sacrifice', id);
-    // Remove from selection if selected
-    const index = selectedSacrifices.value.indexOf(id);
-    if (index > -1) {
-      selectedSacrifices.value.splice(index, 1);
-    }
-  }
-};
-
-const editSacrifice = (sacrifice: Animal) => {
-  emit('edit-sacrifice', sacrifice);
-};
-
 const bulkStatusUpdate = () => {
   // This would open a modal or dropdown to select new status for all selected items
   const newStatus = prompt('أدخل الحالة الجديدة (حي، جاهز، مذبوح، ملغي):');
   if (newStatus && ['حي', 'جاهز', 'مذبوح', 'ملغي'].includes(newStatus)) {
-    selectedSacrifices.value.forEach(id => {
-      emit('update-status', id, newStatus);
-    });
-    selectedSacrifices.value = [];
+    let canUpdateAll = true;
+    if (newStatus === 'ملغي') {
+      const nonAliveSelected = selectedSacrifices.value.some(id => {
+        const sac = props.sacrifices.find(s => s.id === id);
+        return sac && sac.status !== 'حي';
+      });
+      if (nonAliveSelected) {
+        alert('لا يمكن إلغاء بعض الأضاحي المحددة لأن حالتها ليست "حي". لن يتم تحديث أي منها.');
+        canUpdateAll = false;
+      }
+    }
+
+    if (canUpdateAll) {
+      selectedSacrifices.value.forEach(id => {
+        // Additional check here before emitting, though the manager will also check
+        const sacrifice = props.sacrifices.find(s => s.id === id);
+        if (newStatus === 'ملغي' && sacrifice && sacrifice.status !== 'حي') {
+          // Skip this one, or handle as per overall strategy
+          console.warn(`Skipping cancellation for ${sacrifice.id} as its status is not 'حي'`);
+          return; 
+        }
+        emit('update-status', id, newStatus);
+      });
+    }
+    selectedSacrifices.value = []; // Clear selection regardless of update success for simplicity here
   }
 };
 

@@ -5,15 +5,15 @@
       <span v-if="customer.phone" class="customer-phone"><i class="fas fa-phone"></i> {{ customer.phone }}</span>
     </div>
     <div class="card-body">
-      <div class="info-item">
+      <!-- <div class="info-item">
         <strong><i class="fas fa-hashtag"></i> المعرف:</strong>
         <span class="customer-id">{{ String(customer.id)?.substring(0, 8) }}...</span>
-      </div>
+      </div> -->
       <div class="info-item">
         <strong><i class="fas fa-sheep"></i> عدد الأضاحي:</strong>
         <span>{{ customer.animals?.length || 0 }} رأس</span>
       </div>
-      <div class="info-item">
+      <!-- <div class="info-item">
         <strong><i class="fas fa-money-bill-wave"></i> المبلغ الإجمالي:</strong>
         <span>{{ formatCurrency(customer.totalAmount) }}</span>
       </div>
@@ -29,7 +29,7 @@
           <span v-else-if="customer.balance < 0">(رصيد زائد للعميل)</span>
           <span v-else>(خالص)</span>
         </span>
-      </div>
+      </div> -->
       <div class="info-item notes">
         <strong><i class="fas fa-sticky-note"></i> ملاحظات:</strong>
         <div v-if="!editingNotes" class="notes-display">
@@ -62,14 +62,14 @@
           </div>
         </div>
       </div>
-      <div v-if="customer.address" class="info-item address">
+      <!-- <div v-if="customer.address" class="info-item address">
         <strong><i class="fas fa-map-marker-alt"></i> العنوان:</strong>
         <p>{{ customer.address }}</p>
       </div>
        <div v-if="customer.createdAt" class="info-item created-at">
         <strong><i class="fas fa-calendar-plus"></i> تاريخ الإنشاء:</strong>
         <span>{{ formatDate(customer.createdAt || Date.now()) }}</span>
-      </div>
+      </div> -->
     </div>
     <div class="card-footer">
       <button @click="$emit('edit-customer', customer)" class="btn btn-primary btn-sm">
@@ -110,27 +110,6 @@ const editingNotes = ref(false);
 const editingNotesText = ref('');
 const savingNotes = ref(false);
 const notesTextarea = ref<HTMLTextAreaElement | null>(null);
-
-const formatCurrency = (value: number | undefined) => {
-  if (typeof value !== 'number') return 'N/A';
-  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(value);
-};
-
-const formatDate = (dateValue: string | Date | number | undefined) => {
-  if (!dateValue) return 'N/A';
-  try {
-    return new Date(dateValue).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
-  } catch (e) {
-    return 'Invalid Date';
-  }
-};
-
-const getBalanceClass = (balance: number | undefined) => {
-  if (typeof balance !== 'number') return '';
-  if (balance > 0) return 'text-danger'; // Customer owes money
-  if (balance < 0) return 'text-info';   // Customer has credit
-  return 'text-success'; // Settled
-};
 
 const startEditingNotes = () => {
   editingNotes.value = true;
