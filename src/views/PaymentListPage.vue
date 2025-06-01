@@ -7,7 +7,10 @@
         </router-link>
       </div>
       <div class="card-style">
-        <payment-history ref="paymentHistoryRef" :showCustomerFilter="true" />
+        <payment-history 
+          ref="paymentHistoryRef" 
+          :showCustomerFilter="true" 
+        />
       </div>
     </div>
   </div>
@@ -15,11 +18,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import PaymentHistory from '@/components/payment/PaymentHistory.vue';
-import { usePaymentsStore } from '@/store/modules/payments';
+import { usePaymentsStore, type StoredPayment } from '@/store/modules/payments';
 
 const paymentHistoryRef = ref<InstanceType<typeof PaymentHistory> | null>(null);
 const paymentsStore = usePaymentsStore();
+const router = useRouter();
 
 onMounted(async () => {
   if (!paymentsStore.payments.length) {

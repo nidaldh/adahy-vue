@@ -36,6 +36,24 @@
             "totalAmount": {
               ".validate": "newData.isNumber() && newData.val() >= 0"
             },
+            "totalAmountBeforeDiscount": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "finalTotalAmount": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "discount": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+            "discountReason": {
+              ".validate": "newData.isString()"
+            },
+            "discountAppliedBy": {
+              ".validate": "newData.isString()"
+            },
+            "discountAppliedAt": {
+              ".validate": "newData.isNumber()"
+            },
             "totalPayments": {
               ".validate": "newData.isNumber() && newData.val() >= 0"
             },
@@ -52,53 +70,47 @@
         },
         "payments": {
           "$paymentId": {
-            ".validate": "newData.hasChildren(['customerId', 'amount', 'paymentDate', 'createdAt'])",
+            ".validate": "newData.hasChildren(['customerId', 'paymentDate', 'paymentEntries', 'totalAmountNIS', 'createdAt'])",
             "customerId": {
               ".validate": "newData.isString() && newData.val().length > 0"
-            },
-            "amount": {
-              ".validate": "newData.isNumber() && newData.val() > 0"
             },
             "paymentDate": {
               ".validate": "newData.isNumber()"
             },
+            "notes": {
+              ".validate": "newData.isString()"
+            },
+            "paymentEntries": {
+              ".validate": "newData.isObject()",
+              "$entryIndex": {
+                ".validate": "newData.hasChildren(['id', 'amount', 'currency', 'method'])",
+                "id": {
+                  ".validate": "newData.isString()"
+                },
+                "amount": {
+                  ".validate": "newData.isNumber() && newData.val() > 0"
+                },
+                "currency": {
+                  ".validate": "newData.isString()"
+                },
+                "nisEquivalent": {
+                  ".validate": "newData.isNumber()"
+                },
+                "method": {
+                  ".validate": "newData.isString()"
+                }
+              }
+            },
+            "totalAmountNIS": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
             "createdAt": {
               ".validate": "newData.isNumber()"
             },
-            "notes": {
-              ".validate": "newData.isString()"
+            "updatedAt": {
+              ".validate": "newData.isNumber()"
             }
           }
-        },
-        "globalAnimals": {
-          "$animalId": {
-            ".validate": "newData.hasChildren(['type', 'number', 'compositeKey'])",
-            "type": {
-              ".validate": "newData.isString() && newData.val().length > 0"
-            },
-            "number": {
-              ".validate": "newData.isString() && newData.val().length > 0"
-            },
-            "compositeKey": {
-              ".validate": "newData.isString() && newData.val().length > 0"
-            },
-            "customerName": {
-              ".validate": "newData.isString()"
-            },
-            "status": {
-              ".validate": "newData.isString() && newData.val().matches(/^(حي|جاهز|مذبوح|ملغي)$/)"
-            },
-            "weight": {
-              ".validate": "newData.isNumber() && newData.val() >= 0"
-            },
-            "price": {
-              ".validate": "newData.isNumber() && newData.val() >= 0"
-            }
-          }
-        },
-        "metadata": {
-          ".read": "auth != null && auth.uid == $uid",
-          ".write": "auth != null && auth.uid == $uid"
         }
       }
     },

@@ -1,8 +1,10 @@
 <template>
   <div class="payment-form-container" dir="rtl">
-    <!-- Removed duplicate title: <h3><i class="fas fa-plus-circle"></i> إضافة دفعة جديدة</h3> -->
+    <h3>
+      <i class="fas fa-plus-circle"></i> إضافة دفعة جديدة
+    </h3>
     <form @submit.prevent="handleSubmit">
-      <loading-spinner :loading="customersStore.loading" />
+      <loading-spinner :loading="customersStore.loading || isLoading" />
       <error-message v-if="formError" :message="formError" />
 
       <div class="form-group">
@@ -14,18 +16,46 @@
           </option>
         </select>
         <div v-if="selectedCustomerDetails && selectedCustomerDetails.balance !== undefined" class="customer-balance-info">
-          <span v-if="selectedCustomerDetails.balance > 0">
-            الدين الحالي على العميل: {{ formatCurrency(selectedCustomerDetails.balance, 'NIS') }} (دين على العميل)
-          </span>
-          <span v-else-if="selectedCustomerDetails.balance < 0">
-            الرصيد الزائد للعميل: {{ formatCurrency(Math.abs(selectedCustomerDetails.balance), 'NIS') }} (رصيد زائد للعميل)
-          </span>
-          <span v-else>
-            الرصيد: {{ formatCurrency(0, 'NIS') }} (خالص)
-          </span>
-          <button type="button" v-if="selectedCustomerDetails.balance > 0 && paymentEntries.length > 0" @click="prefillAmountWithBalance" class="btn btn-link btn-sm" style="margin-right: 5px;">
-            دفع كامل الدين (لأول بند)
-          </button>
+          <!-- Discount Information -->
+          <div v-if="hasCustomerDiscount" class="customer-discount-info">
+            <div class="discount-summary">
+              <i class="fas fa-percent"></i>
+              <strong>خصم العميل: {{ formatCurrency(selectedCustomerDetails.discount || 0, 'NIS') }}</strong>
+              <div v-if="selectedCustomerDetails.discountReason" class="discount-reason">
+                <small><i class="fas fa-info-circle"></i> السبب: {{ selectedCustomerDetails.discountReason }}</small>
+              </div>
+            </div>
+            <div class="financial-breakdown">
+              <div class="breakdown-row">
+                <span class="label">المجموع الأصلي:</span>
+                <span class="value">{{ formatCurrency(selectedCustomerDetails.totalAmountBeforeDiscount || selectedCustomerDetails.totalAmount || 0, 'NIS') }}</span>
+              </div>
+              <div class="breakdown-row discount-row">
+                <span class="label">الخصم:</span>
+                <span class="value discount-amount">- {{ formatCurrency(selectedCustomerDetails.discount || 0, 'NIS') }}</span>
+              </div>
+              <div class="breakdown-row total-row">
+                <span class="label">المجموع النهائي:</span>
+                <span class="value final-total">{{ formatCurrency(selectedCustomerDetails.finalTotalAmount || selectedCustomerDetails.totalAmount || 0, 'NIS') }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Balance Information -->
+          <div class="balance-summary">
+            <span v-if="selectedCustomerDetails.balance > 0">
+              الدين الحالي على العميل: {{ formatCurrency(selectedCustomerDetails.balance, 'NIS') }} (دين على العميل)
+            </span>
+            <span v-else-if="selectedCustomerDetails.balance < 0">
+              الرصيد الزائد للعميل: {{ formatCurrency(Math.abs(selectedCustomerDetails.balance), 'NIS') }} (رصيد زائد للعميل)
+            </span>
+            <span v-else>
+              الرصيد: {{ formatCurrency(0, 'NIS') }} (خالص)
+            </span>
+            <button type="button" v-if="selectedCustomerDetails.balance > 0 && paymentEntries.length > 0" @click="prefillAmountWithBalance" class="btn btn-link btn-sm" style="margin-right: 5px;">
+              دفع كامل الدين (لأول بند)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -75,7 +105,11 @@
         </button>
       </div>
 
-      <button type="button" @click="addPaymentEntry" class="btn btn-success btn-sm add-entry-btn">
+      <button 
+        type="button" 
+        @click="addPaymentEntry" 
+        class="btn btn-success btn-sm add-entry-btn"
+      >
         <i class="fas fa-plus"></i> إضافة بند دفع آخر
       </button>
       <!-- End Payment Entries -->
@@ -106,7 +140,8 @@
 
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="isSubmitDisabled">
-          <i class="fas fa-save"></i> حفظ الدفعة
+          <i class="fas fa-plus"></i> 
+          حفظ الدفعة
         </button>
       </div>
     </form>
@@ -115,7 +150,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-// Removed StoredPayment as it's unused
 import { usePaymentsStore, type NewPaymentData } from '@/store/modules/payments'; 
 import { useCustomersStore, type Customer, type PaymentDetail, type PaymentPart } from '@/store/modules/customers';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -133,6 +167,7 @@ const paymentsStore = usePaymentsStore();
 const customersStore = useCustomersStore();
 const emit = defineEmits(['payment-saved']);
 
+const isLoading = ref(false);
 const formError = ref<string | null>(null);
 
 const selectedCustomerId = ref<string>('');
@@ -154,7 +189,7 @@ const createNewPaymentEntry = (): PaymentEntry => ({
   amount: null,
   currency: 'NIS',
   nisEquivalent: undefined,
-  method: 'cash', // Default method for new entries, conforms to PaymentMethod
+  method: 'cash' // Default method for new entries, conforms to PaymentMethod
 });
 
 const paymentEntries = ref<PaymentEntry[]>([createNewPaymentEntry()]);
@@ -214,6 +249,12 @@ const selectedCustomerDetails = computed<Customer | undefined>(() => {
   return customersStore.customers.find(c => c.id === selectedCustomerId.value);
 });
 
+const hasCustomerDiscount = computed(() => {
+  return selectedCustomerDetails.value && 
+         selectedCustomerDetails.value.discount && 
+         selectedCustomerDetails.value.discount > 0;
+});
+
 watch(() => props.customerIdProp, (newVal) => {
   if (newVal) {
     selectedCustomerId.value = newVal;
@@ -222,6 +263,8 @@ watch(() => props.customerIdProp, (newVal) => {
     }
   }
 }, { immediate: true });
+
+
 
 const handleCustomerChange = () => {
   formError.value = null;
@@ -313,51 +356,8 @@ const handleSubmit = async () => {
       return;
     }
 
-    const paymentParts: PaymentPart[] = paymentEntries.value.map(entry => ({
-      id: nanoid(), // Unique ID for this part
-      amount: entry.amount!,
-      currency: entry.currency,
-      nisEquivalent: entry.currency === 'NIS'
-        ? entry.amount! // if NIS, amount is nisEquivalent
-        : (entry.nisEquivalent || 0), // if not NIS, use provided nisEquivalent or default to 0
-      method: entry.method, // Added method from the entry
-    }));
-
-    const totalTransactionNIS = paymentParts.reduce((sum, part) => {
-      // Ensure nisEquivalent is treated as a number, defaulting to 0 if undefined or null
-      return sum + (part.nisEquivalent || 0);
-    }, 0);
-
-    const newPaymentDetail: PaymentDetail = {
-      id: nanoid(), // Unique ID for the overall transaction
-      parts: paymentParts,
-      totalTransactionNIS: totalTransactionNIS,
-      paymentDate: paymentTransactionDetails.value.paymentDate,
-      // method: paymentTransactionDetails.value.method as any, // Removed common method from PaymentDetail
-      notes: paymentTransactionDetails.value.notes?.trim() || '-'
-    };
-
-    const existingPayments = Array.isArray(customer.payments) ? customer.payments : [];
-    const updatedPaymentsArray = [...existingPayments, newPaymentDetail];
-
-    await customersStore.updateCustomer({ id: customer.id, payments: updatedPaymentsArray });
-
-    // Log each part to the payments store
-    for (const part of paymentParts) {
-      const paymentLogEntry: NewPaymentData = {
-        customerId: selectedCustomerId.value,
-        amount: part.amount,
-        currency: part.currency,
-        nisEquivalent: part.nisEquivalent,
-        paymentDate: paymentTransactionDetails.value.paymentDate,
-        method: part.method, // Use method from the part
-        notes: paymentTransactionDetails.value.notes?.trim() || '-', // Common notes for now
-        originalPaymentDetailId: newPaymentDetail.id,
-        // Assuming NewPaymentData is updated to include paymentPartId
-        // paymentPartId: part.id,
-      };
-      await paymentsStore.addPayment(paymentLogEntry);
-    }
+    // Create mode - add new payment
+    await createNewPayment(customer);
 
     emit('payment-saved');
     resetForm();
@@ -367,6 +367,56 @@ const handleSubmit = async () => {
     formError.value = e.message || 'حدث خطأ أثناء حفظ الدفعة.';
   }
 };
+
+const createNewPayment = async (customer: any) => {
+  const paymentParts: PaymentPart[] = paymentEntries.value.map(entry => ({
+    id: nanoid(), // Unique ID for this part
+    amount: entry.amount!,
+    currency: entry.currency,
+    nisEquivalent: entry.currency === 'NIS'
+      ? entry.amount! // if NIS, amount is nisEquivalent
+      : (entry.nisEquivalent || 0), // if not NIS, use provided nisEquivalent or default to 0
+    method: entry.method, // Added method from the entry
+  }));
+
+  const totalTransactionNIS = paymentParts.reduce((sum, part) => {
+    // Ensure nisEquivalent is treated as a number, defaulting to 0 if undefined or null
+    return sum + (part.nisEquivalent || 0);
+  }, 0);
+
+  const newPaymentDetail: PaymentDetail = {
+    id: nanoid(), // Unique ID for the overall transaction
+    parts: paymentParts,
+    totalTransactionNIS: totalTransactionNIS,
+    paymentDate: paymentTransactionDetails.value.paymentDate,
+    // method: paymentTransactionDetails.value.method as any, // Removed common method from PaymentDetail
+    notes: paymentTransactionDetails.value.notes?.trim() || '-'
+  };
+
+  const existingPayments = Array.isArray(customer.payments) ? customer.payments : [];
+  const updatedPaymentsArray = [...existingPayments, newPaymentDetail];
+
+  await customersStore.updateCustomer({ id: customer.id, payments: updatedPaymentsArray });
+
+  // Log each part to the payments store
+  for (const part of paymentParts) {
+    const paymentLogEntry: NewPaymentData = {
+      customerId: selectedCustomerId.value,
+      amount: part.amount,
+      currency: part.currency,
+      nisEquivalent: part.nisEquivalent,
+      paymentDate: paymentTransactionDetails.value.paymentDate,
+      method: part.method, // Use method from the part
+      notes: paymentTransactionDetails.value.notes?.trim() || '-', // Common notes for now
+      originalPaymentDetailId: newPaymentDetail.id,
+      // Assuming NewPaymentData is updated to include paymentPartId
+      // paymentPartId: part.id,
+    };
+    await paymentsStore.addPayment(paymentLogEntry);
+  }
+};
+
+
 
 const resetForm = () => {
   paymentEntries.value = [createNewPaymentEntry()];
@@ -495,6 +545,18 @@ onMounted(async () => {
           cursor: not-allowed;
         }
       }
+
+      &.btn-secondary {
+        background-color: #6c757d;
+        color: #fff;
+        border: none;
+        margin-right: 0.5rem;
+
+        &:hover {
+          background-color: #5a6268;
+          transform: translateY(-1px);
+        }
+      }
     }
   }
 
@@ -598,4 +660,72 @@ onMounted(async () => {
 // Make sure to include or import existing styles for:
 // .payment-form-container, h3, .form-group, label, input, select, textarea, .required-star,
 // .customer-balance-info, .form-actions, .btn, .loading-spinner, .error-message
+
+.customer-balance-info {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background-color: #f8f9fa;
+  border-radius: 0.375rem;
+  border: 1px solid #dee2e6;
+  font-size: 0.95rem;
+
+  .customer-discount-info {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #dee2e6;
+
+    .discount-summary {
+      margin-bottom: 0.5rem;
+      color: #28a745;
+      
+      i {
+        margin-left: 0.25rem;
+      }
+
+      .discount-reason {
+        margin-top: 0.25rem;
+        color: #6c757d;
+        font-style: italic;
+      }
+    }
+
+    .financial-breakdown {
+      .breakdown-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.25rem 0;
+        font-size: 0.9rem;
+
+        .label {
+          font-weight: 500;
+        }
+
+        .value {
+          font-weight: 600;
+        }
+
+        &.discount-row .discount-amount {
+          color: #28a745;
+        }
+
+        &.total-row {
+          border-top: 1px solid #dee2e6;
+          margin-top: 0.25rem;
+          padding-top: 0.5rem;
+          font-weight: 600;
+
+          .final-total {
+            color: #007bff;
+            font-size: 1rem;
+          }
+        }
+      }
+    }
+  }
+
+  .balance-summary {
+    font-weight: 500;
+  }
+}
 </style>

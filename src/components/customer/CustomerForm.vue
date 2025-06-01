@@ -41,6 +41,16 @@
         </button>
       </fieldset>
 
+      <!-- Discount Section -->
+      <fieldset>
+        <legend>خصم العميل</legend>
+        <discount-input 
+          v-model="formData.discount"
+          :total-amount="totalAnimalsAmount"
+          :applied-by="currentUser || 'مستخدم النظام'"
+        />
+      </fieldset>
+
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="customersStore.loading">
           {{ editMode ? 'تحديث البيانات' : 'حفظ العميل' }}
@@ -59,11 +69,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, type PropType } from 'vue';
+import { ref, watch, computed, type PropType } from 'vue';
 import { useCustomersStore, type Customer, type Animal, type NewCustomerData, type UpdateCustomerData } from '@/store/modules/customers';
 import AnimalForm from '@/components/animal/AnimalForm.vue';
+import DiscountInput from '@/components/common/DiscountInput.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ErrorMessage from '@/components/common/ErrorMessage.vue';
+import { useAuthStore } from '@/store/modules/auth';
 import { v4 as uuidv4 } from 'uuid';
 
 const props = defineProps({
@@ -76,7 +88,11 @@ const props = defineProps({
 const emit = defineEmits(['customer-saved']);
 
 const customersStore = useCustomersStore();
+const authStore = useAuthStore();
 const editMode = ref(false);
+
+// Get current user for discount tracking
+const currentUser = computed(() => authStore.user?.displayName || authStore.user?.email || 'مستخدم النظام');
 
 const initialAnimal = (): Animal => ({
   id: uuidv4(),
@@ -96,10 +112,22 @@ const initialFormData = () => ({
   phone: '',
   address: '',
   notes: '',
-  animals: [initialAnimal()]
+  animals: [initialAnimal()],
+  discount: null as { amount: number; reason?: string; appliedBy?: string; appliedAt?: number } | null
 });
 
 const formData = ref(initialFormData());
+
+// Computed property for total animals amount
+const totalAnimalsAmount = computed(() => {
+  return formData.value.animals.reduce((sum, animal) => {
+    return sum + ((animal.weight || 0) * (animal.pricePerUnit || 0));
+  }, 0);
+});
+
+const resetForm = () => {
+  formData.value = initialFormData();
+};
 
 watch(() => props.customerToEdit, (newVal) => {
   if (newVal) {
@@ -109,17 +137,21 @@ watch(() => props.customerToEdit, (newVal) => {
       phone: newVal.phone || '',
       address: newVal.address || '',
       notes: newVal.notes || '',
-      animals: newVal.animals && newVal.animals.length > 0 
-                 ? newVal.animals.map(a => ({ ...a, id: a.id || uuidv4() })) 
-                 : [initialAnimal()]
+      animals: newVal.animals && newVal.animals.length > 0
+                 ? newVal.animals.map(a => ({ ...a, id: a.id || uuidv4() }))
+                 : [initialAnimal()],
+      discount: newVal.discount && newVal.discount > 0 ? {
+        amount: newVal.discount,
+        reason: newVal.discountReason,
+        appliedBy: newVal.discountAppliedBy,
+        appliedAt: newVal.discountAppliedAt
+      } : null
     };
   } else {
-    if (editMode.value) {
-      resetForm();
-    }
+    resetForm(); // Reset form for "add new" or if customer not found
     editMode.value = false;
   }
-}, { immediate: true, deep: true });
+}, { immediate: true }); // Removed deep: true
 
 const addAnimal = () => {
   formData.value.animals.push(initialAnimal());
@@ -147,7 +179,14 @@ const handleSubmit = async () => {
   const customerDataPayload = {
     ...formData.value,
     animals: processedAnimals,
-    payments: [] // Empty payments for now
+    payments: [], // Empty payments for now
+    // Add discount fields if discount is applied
+    ...(formData.value.discount ? {
+      discount: formData.value.discount.amount,
+      discountReason: formData.value.discount.reason,
+      discountAppliedBy: formData.value.discount.appliedBy,
+      discountAppliedAt: formData.value.discount.appliedAt
+    } : {})
   } as NewCustomerData;
 
   try {
@@ -163,10 +202,6 @@ const handleSubmit = async () => {
   } catch (e) {
     console.error("Failed to save customer:", e);
   }
-};
-
-const resetForm = () => {
-  formData.value = initialFormData();
 };
 
 const resetFormAndNotifyParent = () => {

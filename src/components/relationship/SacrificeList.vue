@@ -24,7 +24,12 @@
         v-for="sacrifice in sacrifices" 
         :key="sacrifice.id"
         class="sacrifice-card"
-        :class="{ 'selected': selectedSacrifices.includes(sacrifice.id) }"
+        :class="{ 
+          'selected': selectedSacrifices.includes(sacrifice.id),
+          'highlighted': sacrifice.id === highlightAnimalId
+        }"
+        :id="`sacrifice-card-${sacrifice.id}`"
+        ref="sacrificeCards"
       >
         <!-- Selection Checkbox -->
         <div class="sacrifice-selection">
@@ -98,7 +103,13 @@
         
         <!-- Actions -->
         <div class="sacrifice-actions">
-          <!-- Edit and Delete buttons are removed -->
+          <button 
+            @click="requestEdit(sacrifice)" 
+            class="action-btn edit-btn"
+            title="تعديل الأضحية"
+          >
+            <i class="fas fa-pencil-alt"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -129,31 +140,54 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import type { Animal } from '@/store/modules/customers';
 
 const props = defineProps<{
   sacrifices: Animal[];
+  highlightAnimalId?: string | null;
 }>();
 
 const emit = defineEmits<{
   'update-status': [id: string, status: string];
+  'request-edit-animal': [animal: Animal];
 }>();
 
 // Selection state
 const selectedSacrifices = ref<string[]>([]);
+const sacrificeCards = ref<HTMLElement[]>([]);
 
 // Computed properties
-const allSelected = computed(() => {
-  return props.sacrifices.length > 0 && selectedSacrifices.value.length === props.sacrifices.length;
-});
-
 const totalWeight = computed(() => {
   return props.sacrifices.reduce((sum, sacrifice) => sum + (sacrifice.weight || 0), 0).toFixed(1);
 });
 
 const totalAmount = computed(() => {
   return props.sacrifices.reduce((sum, sacrifice) => sum + (sacrifice.total || 0), 0);
+});
+
+// Scroll to highlighted animal
+const scrollToHighlightedAnimal = () => {
+  if (props.highlightAnimalId) {
+    nextTick(() => {
+      const element = document.getElementById(`sacrifice-card-${props.highlightAnimalId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Add a temporary flash animation
+        element.classList.add('flash-highlight');
+        setTimeout(() => {
+          element.classList.remove('flash-highlight');
+        }, 3000);
+      }
+    });
+  }
+};
+
+// Watch for changes in highlightAnimalId
+watch(() => props.highlightAnimalId, (newId) => {
+  if (newId) {
+    scrollToHighlightedAnimal();
+  }
 });
 
 // Methods
@@ -166,48 +200,12 @@ const toggleSacrificeSelection = (id: string) => {
   }
 };
 
-const toggleSelectAll = () => {
-  if (allSelected.value) {
-    selectedSacrifices.value = [];
-  } else {
-    selectedSacrifices.value = props.sacrifices.map(s => s.id);
-  }
-};
-
 const updateStatus = (id: string, newStatus: string) => {
   emit('update-status', id, newStatus);
 };
 
-const bulkStatusUpdate = () => {
-  // This would open a modal or dropdown to select new status for all selected items
-  const newStatus = prompt('أدخل الحالة الجديدة (حي، جاهز، مذبوح، ملغي):');
-  if (newStatus && ['حي', 'جاهز', 'مذبوح', 'ملغي'].includes(newStatus)) {
-    let canUpdateAll = true;
-    if (newStatus === 'ملغي') {
-      const nonAliveSelected = selectedSacrifices.value.some(id => {
-        const sac = props.sacrifices.find(s => s.id === id);
-        return sac && sac.status !== 'حي';
-      });
-      if (nonAliveSelected) {
-        alert('لا يمكن إلغاء بعض الأضاحي المحددة لأن حالتها ليست "حي". لن يتم تحديث أي منها.');
-        canUpdateAll = false;
-      }
-    }
-
-    if (canUpdateAll) {
-      selectedSacrifices.value.forEach(id => {
-        // Additional check here before emitting, though the manager will also check
-        const sacrifice = props.sacrifices.find(s => s.id === id);
-        if (newStatus === 'ملغي' && sacrifice && sacrifice.status !== 'حي') {
-          // Skip this one, or handle as per overall strategy
-          console.warn(`Skipping cancellation for ${sacrifice.id} as its status is not 'حي'`);
-          return; 
-        }
-        emit('update-status', id, newStatus);
-      });
-    }
-    selectedSacrifices.value = []; // Clear selection regardless of update success for simplicity here
-  }
+const requestEdit = (animal: Animal) => {
+  emit('request-edit-animal', animal);
 };
 
 // Utility functions
@@ -225,6 +223,10 @@ const getStatusClass = (status: string) => {
   };
   return statusClasses[status] || '';
 };
+
+onMounted(() => {
+  scrollToHighlightedAnimal();
+});
 </script>
 
 <style scoped lang="scss">
@@ -307,18 +309,40 @@ const getStatusClass = (status: string) => {
       border: 2px solid #ecf0f1;
       border-radius: 8px;
       transition: all 0.2s ease;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: flex;
+      overflow: hidden;
+      transition: box-shadow 0.3s ease, transform 0.2s ease;
       
       &:hover {
-        border-color: #d5dbdb;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
       }
       
       &.selected {
-        border-color: #3498db;
-        background-color: #f8fbff;
+        border-color: #8e44ad;
+        box-shadow: 0 0 0 2px rgba(142, 68, 173, 0.2);
+      }
+      
+      &.highlighted {
+        border-color: #e74c3c;
+        box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.3);
+      }
+
+      &.flash-highlight {
+        animation: highlight-flash 2s ease;
       }
       
       .sacrifice-selection {
+        padding: 15px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8f9fa;
+        border-left: 1px solid #e0e0e0;
+        
         .sacrifice-checkbox {
           width: 18px;
           height: 18px;
@@ -585,6 +609,18 @@ const getStatusClass = (status: string) => {
         grid-template-columns: 1fr;
       }
     }
+  }
+}
+
+@keyframes highlight-flash {
+  0% {
+    background-color: rgba(231, 76, 60, 0.2);
+  }
+  30% {
+    background-color: rgba(231, 76, 60, 0.4);
+  }
+  100% {
+    background-color: transparent;
   }
 }
 </style>

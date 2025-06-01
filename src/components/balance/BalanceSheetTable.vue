@@ -13,6 +13,23 @@
           <span class="value">{{ formatCurrency(summary.totalSalesValue) }}</span>
         </div>
       </div>
+      <div v-if="summary.totalDiscountsGiven > 0" class="summary-item total-discounts">
+        <div class="icon-container"><i class="fas fa-percent"></i></div>
+        <div class="details">
+          <span class="label">إجمالي الخصومات المقدمة</span>
+          <span class="value discount-amount">{{ formatCurrency(summary.totalDiscountsGiven) }}</span>
+          <div class="sub-details">
+            <small>{{ summary.customersWithDiscounts }} عميل لديه خصم</small>
+          </div>
+        </div>
+      </div>
+      <div v-if="summary.totalDiscountsGiven > 0" class="summary-item original-revenue">
+        <div class="icon-container"><i class="fas fa-receipt"></i></div>
+        <div class="details">
+          <span class="label">إجمالي الإيرادات قبل الخصم</span>
+          <span class="value">{{ formatCurrency(summary.totalSalesValueBeforeDiscount) }}</span>
+        </div>
+      </div>
       <div class="summary-item total-payments-received">
         <div class="icon-container"><i class="fas fa-hand-holding-usd"></i></div>
         <div class="details">
@@ -78,11 +95,14 @@ const lastUpdated = ref<Date | null>(null);
 
 const summary = ref({
   totalSalesValue: 0,
+  totalSalesValueBeforeDiscount: 0,
+  totalDiscountsGiven: 0,
   totalPaymentsReceived: 0,
   totalOutstandingBalance: 0,
   // netPosition: 0, // Replaced by focusing on totalPaymentsReceived as net cash inflow
   totalCustomers: 0,
   totalActiveAnimals: 0,
+  customersWithDiscounts: 0,
 });
 
 const fetchSummaryData = async () => {
@@ -97,13 +117,33 @@ const fetchSummaryData = async () => {
         await paymentsStore.fetchPayments();
     }
 
-    // Calculate total sales value from customers' animals (non-cancelled)
+    // Calculate sales values and discount metrics
+    let totalSalesBeforeDiscount = 0;
+    let totalDiscounts = 0;
+    let customersWithDiscounts = 0;
+
     summary.value.totalSalesValue = customersStore.customers.reduce((acc, customer) => {
       const customerSales = customer.animals?.reduce((animalSum, animal) => {
         return animal.status !== 'ملغي' ? animalSum + (animal.total || 0) : animalSum;
       }, 0) || 0;
-      return acc + customerSales;
+      
+      // Track original amounts before discount
+      totalSalesBeforeDiscount += customerSales;
+      
+      // Track discounts
+      if (customer.discount && customer.discount > 0) {
+        totalDiscounts += customer.discount;
+        customersWithDiscounts++;
+      }
+      
+      // Use final total amount (after discount) for sales value
+      const finalAmount = customer.finalTotalAmount !== undefined ? customer.finalTotalAmount : customerSales;
+      return acc + finalAmount;
     }, 0);
+
+    summary.value.totalSalesValueBeforeDiscount = totalSalesBeforeDiscount;
+    summary.value.totalDiscountsGiven = totalDiscounts;
+    summary.value.customersWithDiscounts = customersWithDiscounts;
 
     summary.value.totalPaymentsReceived = paymentsStore.payments.reduce((acc, payment) => {
       return acc + payment.amount;
@@ -220,6 +260,27 @@ h3 {
 
 // Specific item styling using more distinct colors
 .total-sales .icon-container { background-color: #20c997; } // Teal
+.total-discounts .icon-container { background-color: #28a745; } // Green
+.original-revenue .icon-container { background-color: #17a2b8; } // Info blue
+.total-payments-received .icon-container { background-color: #007bff; } // Blue
+.total-outstanding-balance .icon-container { background-color: #ffc107; } // Warning yellow
+.net-cashflow .icon-container { background-color: #6c757d; } // Gray
+.total-customers .icon-container { background-color: #dc3545; } // Red
+.total-animals .icon-container { background-color: #fd7e14; } // Orange
+
+// Discount-specific styling
+.discount-amount {
+  color: #28a745 !important;
+}
+
+.sub-details {
+  margin-top: 0.25rem;
+  
+  small {
+    color: #6c757d;
+    font-style: italic;
+  }
+}
 .total-payments-received .icon-container { background-color: #007bff; } // Blue
 .total-outstanding-balance .icon-container { background-color: #fd7e14; } // Orange
 .net-cashflow .icon-container { background-color: #6610f2; } // Indigo

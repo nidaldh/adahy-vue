@@ -44,6 +44,12 @@ const routes: Array<RouteRecordRaw> = [
                 meta: { requiresAuth: true },
             },
             {
+                path: 'animals-list',
+                name: 'AnimalsList',
+                component: () => import('@/views/AnimalsListPage.vue'),
+                meta: { requiresAuth: true },
+            },
+            {
                 path: 'payments',
                 redirect: { name: 'PaymentList' },
             },

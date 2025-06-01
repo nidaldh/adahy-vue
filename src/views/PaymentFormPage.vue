@@ -1,9 +1,14 @@
 <template>
   <div class="payment-form-page" dir="rtl">
-    <h2><i class="fas fa-plus-circle"></i> إضافة دفعة جديدة</h2>
+    <h2>
+      <i class="fas fa-plus-circle"></i> إضافة دفعة جديدة
+    </h2>
     <div class="container">
       <div class="card-style">
-        <payment-form @payment-saved="handlePaymentSaved" :customer-id-prop="selectedCustomerIdFromRoute" />
+        <payment-form 
+          @payment-saved="handlePaymentSaved" 
+          :customer-id-prop="selectedCustomerIdFromRoute"
+        />
       </div>
     </div>
   </div>
@@ -33,7 +38,7 @@ const handlePaymentSaved = () => {
   }
 };
 
-// Only set customer ID if explicitly provided in the route
+// Set customer ID if provided in the route
 if (route.query.customerId && typeof route.query.customerId === 'string') {
   selectedCustomerIdFromRoute.value = route.query.customerId;
 }

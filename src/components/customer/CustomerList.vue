@@ -58,7 +58,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue';
-import { useCustomersStore } from '@/store/modules/customers';
+import { useCustomersStore, type Customer } from '@/store/modules/customers';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ErrorMessage from '@/components/common/ErrorMessage.vue';
 import { useRouter } from 'vue-router';
@@ -67,22 +67,25 @@ import { useDebounce } from '@/composables/usePerformance';
 const customersStore = useCustomersStore();
 const router = useRouter();
 
-// Search functionality with debouncing
+// Search and filter functionality
 const searchQuery = ref('');
 const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
 // Computed property for filtered customers
 const filteredCustomers = computed(() => {
-  if (!debouncedSearchQuery.value) {
-    return customersStore.customers;
+  let customers = customersStore.customers;
+
+  // Filter by search query
+  if (debouncedSearchQuery.value) {
+    const query = debouncedSearchQuery.value.toLowerCase();
+    customers = customers.filter(customer => 
+      customer.name.toLowerCase().includes(query) ||
+      (customer.phone && customer.phone.includes(query)) ||
+      (customer.notes && customer.notes.toLowerCase().includes(query))
+    );
   }
   
-  const query = debouncedSearchQuery.value.toLowerCase();
-  return customersStore.customers.filter(customer => 
-    customer.name.toLowerCase().includes(query) ||
-    (customer.phone && customer.phone.includes(query)) ||
-    (customer.notes && customer.notes.toLowerCase().includes(query))
-  );
+  return customers;
 });
 
 const fetchWrapper = async () => {
@@ -121,6 +124,7 @@ h3 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap; // Allow wrapping for smaller screens
   gap: 15px;
 }
 

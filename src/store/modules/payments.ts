@@ -33,6 +33,7 @@ export const usePaymentsStore = defineStore('payments', () => {
     error: firebaseError, 
     subscribe, 
     addData: firebaseAddData, 
+    updateData: firebaseUpdateData,
     removeData: firebaseRemoveData 
   } = useFirebaseDB<StoredPayment>('payments'); // Base path for payments collection
 
@@ -76,6 +77,19 @@ export const usePaymentsStore = defineStore('payments', () => {
     } catch (err: any) {
       storeError.value = `Failed to log payment: ${err.message}`;
       throw err; 
+    }
+  };
+
+  const updatePayment = async (paymentId: string, paymentData: Partial<NewPaymentData>) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot update payment log entry.";
+      throw new Error("User not authenticated for updating payment log entry");
+    }
+    try {
+      await firebaseUpdateData(paymentId, paymentData);
+    } catch (err: any) {
+      storeError.value = `Failed to update payment log: ${err.message}`;
+      throw err;
     }
   };
   
@@ -132,6 +146,7 @@ export const usePaymentsStore = defineStore('payments', () => {
     lastFetchTimestamp: computed(() => lastFetchTimestamp.value), // Expose as computed
     getPaymentsByCustomerId, // Getter to filter payments by customer ID
     addPayment, 
+    updatePayment, // Add updatePayment method
     deletePayment,
     totalPaidForCustomerNIS, // Renamed for clarity
     fetchPayments, // Add this method

@@ -13,6 +13,52 @@
         <strong><i class="fas fa-sheep"></i> عدد الأضاحي:</strong>
         <span>{{ customer.animals?.length || 0 }} رأس</span>
       </div>
+      
+      <!-- Discount Information -->
+      <div v-if="hasDiscount" class="info-item discount-info">
+        <strong><i class="fas fa-percentage"></i> خصم العميل:</strong>
+        <div class="discount-details">
+          <span class="discount-amount">{{ formatCurrency(customer.discount || 0) }}</span>
+          <div v-if="customer.discountReason" class="discount-reason">
+            <small><i class="fas fa-info-circle"></i> {{ customer.discountReason }}</small>
+          </div>
+          <div v-if="customer.discountAppliedAt" class="discount-applied">
+            <small>تطبق في: {{ formatDate(customer.discountAppliedAt) }}</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Financial Summary -->
+      <div class="info-item financial-summary">
+        <strong><i class="fas fa-calculator"></i> الملخص المالي:</strong>
+        <div class="financial-details">
+          <div class="financial-row">
+            <span class="label">المجموع الأصلي:</span>
+            <span class="value">{{ formatCurrency(customer.totalAmount || 0) }}</span>
+          </div>
+          <div v-if="hasDiscount" class="financial-row discount-row">
+            <span class="label">الخصم:</span>
+            <span class="value discount-value">- {{ formatCurrency(customer.discount || 0) }}</span>
+          </div>
+          <div class="financial-row total-row">
+            <span class="label">المجموع النهائي:</span>
+            <span class="value final-total">{{ formatCurrency(customer.finalTotalAmount || customer.totalAmount || 0) }}</span>
+          </div>
+          <div class="financial-row">
+            <span class="label">المدفوع:</span>
+            <span class="value">{{ formatCurrency(customer.totalPaidNIS || 0) }}</span>
+          </div>
+          <div class="financial-row balance-row">
+            <span class="label">الرصيد:</span>
+            <span class="value" :class="getBalanceClass(customer.balance || 0)">
+              {{ formatCurrency(customer.balance || 0) }}
+              <small v-if="customer.balance && customer.balance > 0">(دين)</small>
+              <small v-else-if="customer.balance && customer.balance < 0">(زائد)</small>
+              <small v-else>(خالص)</small>
+            </span>
+          </div>
+        </div>
+      </div>
       <!-- <div class="info-item">
         <strong><i class="fas fa-money-bill-wave"></i> المبلغ الإجمالي:</strong>
         <span>{{ formatCurrency(customer.totalAmount) }}</span>
@@ -89,9 +135,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, type PropType } from 'vue';
+import { ref, nextTick, computed, type PropType } from 'vue';
 import { useCustomersStore, type Customer } from '@/store/modules/customers';
 import { useRouter } from 'vue-router';
+import { hasActiveDiscount } from '@/utils/customerDiscounts';
 
 const props = defineProps({
   customer: {
@@ -110,6 +157,28 @@ const editingNotes = ref(false);
 const editingNotesText = ref('');
 const savingNotes = ref(false);
 const notesTextarea = ref<HTMLTextAreaElement | null>(null);
+
+// Computed properties
+const hasDiscount = computed(() => hasActiveDiscount(props.customer.discount));
+
+// Helper functions
+const formatCurrency = (amount: number): string => {
+  return `${amount.toLocaleString()} ش.ج`;
+};
+
+const formatDate = (timestamp: number): string => {
+  return new Date(timestamp).toLocaleDateString('ar-EG', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+};
+
+const getBalanceClass = (balance: number): string => {
+  if (balance > 0) return 'balance-debt';
+  if (balance < 0) return 'balance-credit';
+  return 'balance-clear';
+};
 
 const startEditingNotes = () => {
   editingNotes.value = true;
@@ -234,6 +303,103 @@ const navigateToCustomerRelationships = (customerId: string) => {
     justify-content: flex-start; // For RTL, this will be flex-end
     padding-top: 10px;
     border-top: 1px solid #eee;
+  }
+
+  // Discount information styles
+  .discount-info {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 8px;
+    
+    .discount-details {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+    }
+    
+    .discount-amount {
+      font-weight: 600;
+      color: #e67e22;
+      font-size: 1.1em;
+    }
+    
+    .discount-reason, .discount-applied {
+      font-size: 0.8em;
+      color: #8b7355;
+    }
+  }
+
+  // Financial summary styles
+  .financial-summary {
+    flex-direction: column;
+    align-items: stretch;
+    
+    .financial-details {
+      margin-top: 8px;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      padding: 8px;
+      background-color: #f8f9fa;
+    }
+    
+    .financial-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      font-size: 0.9em;
+      
+      &.discount-row {
+        color: #e67e22;
+        font-weight: 500;
+      }
+      
+      &.total-row {
+        border-top: 1px solid #007bff;
+        margin-top: 4px;
+        padding-top: 6px;
+        font-weight: 600;
+        
+        .final-total {
+          color: #007bff;
+          font-size: 1.05em;
+        }
+      }
+      
+      &.balance-row {
+        border-top: 1px solid #ddd;
+        margin-top: 4px;
+        padding-top: 6px;
+        font-weight: 600;
+      }
+      
+      .label {
+        color: #495057;
+      }
+      
+      .value {
+        font-weight: 500;
+        
+        &.discount-value {
+          color: #e67e22;
+        }
+      }
+    }
+  }
+
+  // Balance color classes
+  .balance-debt {
+    color: #dc3545;
+  }
+  
+  .balance-credit {
+    color: #28a745;
+  }
+  
+  .balance-clear {
+    color: #6c757d;
   }
 }
 

@@ -15,6 +15,7 @@
         <CustomerSacrificeManager 
           :selected-customer="selectedCustomer"
           @dataUpdated="handleDataUpdated"
+          :highlight-animal-id="highlightAnimalId"
         />
       </div>
 
@@ -40,6 +41,7 @@ import { useCustomersStore, type Customer } from '@/store/modules/customers';
 const selectedCustomer = ref<Customer | null>(null);
 const route = useRoute();
 const customersStore = useCustomersStore();
+const highlightAnimalId = ref<string | null>(null);
 
 const onCustomerSelected = (customer: Customer) => {
   selectedCustomer.value = customer;
@@ -48,43 +50,56 @@ const onCustomerSelected = (customer: Customer) => {
 
 const onCustomerCleared = () => {
   selectedCustomer.value = null;
+  highlightAnimalId.value = null;
   // Optional: Clear URL query param if customer is cleared
 };
 
 const loadCustomerFromRoute = async (isRefreshAfterUpdate = false) => {
   const customerIdFromRoute = route.query.customerId as string;
+  // Check for animalId to highlight
+  highlightAnimalId.value = route.query.highlightAnimalId as string || null;
 
   if (customerIdFromRoute) {
+    // If it's a refresh after an update, we expect the customer to be in the store.
+    if (isRefreshAfterUpdate) {
+      const customer = customersStore.getCustomerById(customerIdFromRoute);
+      if (customer) {
+        selectedCustomer.value = { ...customer }; // Use a new object for reactivity
+        console.log(`Selected customer ${customerIdFromRoute} data refreshed from store after update.`);
+      } else {
+        // This is unexpected if the update was successful in the store.
+        console.error(`CRITICAL: Customer ${customerIdFromRoute} not found in store after dataUpdated event. Clearing selection. This might indicate an issue with store reactivity or update logic.`);
+        selectedCustomer.value = null;
+        highlightAnimalId.value = null;
+        // Potentially, we might want to fetch this specific customer if the store failed to update its list
+        // await customersStore.fetchCustomerById(customerIdFromRoute); // Example: if such an action exists
+        // const refreshedCustomer = customersStore.getCustomerById(customerIdFromRoute);
+        // if (refreshedCustomer) selectedCustomer.value = { ...refreshedCustomer };
+      }
+      return; // Exit after attempting to load the updated customer from store
+    }
+
+    // Standard load: Not a refresh after update (e.g., initial load or direct navigation)
     let customer = customersStore.getCustomerById(customerIdFromRoute);
 
-    // If not a refresh after update, and customer not found, and store is empty, try fetching all customers.
-    if (!isRefreshAfterUpdate && !customer && customersStore.customers.length === 0 && !customersStore.loading) {
+    // If customer not found, and store is empty, and not loading, try fetching all customers.
+    // This is for initial load scenarios where the store might not be populated yet.
+    if (!customer && customersStore.customers.length === 0 && !customersStore.loading) {
       console.log(`Customer ${customerIdFromRoute} not in empty store, fetching all customers.`);
       await customersStore.fetchCustomers();
       customer = customersStore.getCustomerById(customerIdFromRoute); // Try getting again
     }
 
     if (customer) {
-      selectedCustomer.value = { ...customer }; // Use a new object for reactivity
-      if (isRefreshAfterUpdate) {
-        console.log(`Selected customer ${customerIdFromRoute} data refreshed from store.`);
-      }
+      selectedCustomer.value = { ...customer };
     } else {
-      // Customer not found
-      if (isRefreshAfterUpdate) {
-        // This is problematic: data was supposedly updated in store, but not found.
-        // This indicates a potential issue in how store actions update the local state.
-        console.error(`CRITICAL: Customer ${customerIdFromRoute} not found in store after data update event. Clearing selection.`);
-        selectedCustomer.value = null;
-      } else {
-        // Navigated with a customerId, but customer not found (even after potential fetchCustomers if store was empty)
-        console.warn(`Customer ${customerIdFromRoute} not found. Clearing selection.`);
-        selectedCustomer.value = null;
-      }
+      console.warn(`Customer ${customerIdFromRoute} not found (initial load/direct nav). Clearing selection.`);
+      selectedCustomer.value = null;
+      highlightAnimalId.value = null;
     }
   } else {
-    // No customerId in route
     selectedCustomer.value = null;
+    highlightAnimalId.value = null;
   }
 };
 
@@ -98,13 +113,12 @@ onMounted(() => {
 });
 
 // Watch for changes in route query if the user navigates to this page
-// with a different customerId without full page reload.
-watch(() => route.query.customerId, (newCustomerId, oldCustomerId) => {
-  if (newCustomerId !== oldCustomerId) {
+// with a different customerId or animalId without full page reload.
+watch(() => route.query, (newQuery, oldQuery) => {
+  if (newQuery.customerId !== oldQuery.customerId || newQuery.highlightAnimalId !== oldQuery.highlightAnimalId) {
     loadCustomerFromRoute();
   }
-});
-
+}, { deep: true });
 </script>
 
 <style scoped lang="scss">

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useFirebaseDB } from '@/composables/useFirebaseDB';
 import { useAuthStore } from './auth';
+import { calculateDiscountedAmount, calculateCustomerBalance } from '@/utils/customerDiscounts';
 
 // Define interfaces based on original app data structure
 export interface Animal {
@@ -46,22 +47,28 @@ export interface Customer {
   address?: string; // Add address field
   notes?: string;   // Add notes field
   animals: Animal[];
-  totalAmount: number; // Total due from animals
+  totalAmount: number; // Total due from animals (before discount)
+  discount?: number; // Fixed discount amount in NIS
+  discountReason?: string; // Reason for discount
+  discountAppliedBy?: string; // Who applied the discount
+  discountAppliedAt?: number; // When discount was applied (timestamp)
+  totalAmountBeforeDiscount?: number; // Original total before any discount
+  finalTotalAmount: number; // Total after discount (totalAmount - discount)
   payments: PaymentDetail[]; // Array of payment transactions
   totalPaidNIS: number; // Sum of all totalTransactionNIS from all PaymentDetail objects
-  balance: number; // totalAmount - totalPaidNIS
+  balance: number; // finalTotalAmount - totalPaidNIS
   createdAt?: number;
   updatedAt?: number;
 }
 
-export type NewCustomerData = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'totalPaidNIS' | 'balance'> & {
+export type NewCustomerData = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount' | 'totalPaidNIS' | 'balance' | 'finalTotalAmount' | 'totalAmountBeforeDiscount'> & {
   animals: Array<Omit<Animal, 'id' | 'total' | 'compositeKey' | 'createdAt'> & Partial<Pick<Animal, 'id' | 'status'>>>;
   payments?: Array<Omit<PaymentDetail, 'id' | 'totalTransactionNIS'> & { // totalTransactionNIS will be calculated
     parts: Array<Omit<PaymentPart, 'id'> & Partial<Pick<PaymentPart, 'id'>>>;
   } & Partial<Pick<PaymentDetail, 'id'>>>;
 };
 
-export type UpdateCustomerData = Partial<Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'balance' | 'totalPaidNIS'>> & {
+export type UpdateCustomerData = Partial<Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'balance' | 'totalPaidNIS' | 'finalTotalAmount'>> & {
   id: string;
   payments?: Array<Omit<PaymentDetail, 'id' | 'totalTransactionNIS'> & { // totalTransactionNIS will be calculated
     parts: Array<Omit<PaymentPart, 'id'> & Partial<Pick<PaymentPart, 'id'>>>;
@@ -166,13 +173,19 @@ export const useCustomersStore = defineStore('customers', () => {
       });
       const totalPaidNIS = calculateTotalPaidNIS(processedPayments);
 
+      // Calculate discount-aware amounts
+      const discountResult = calculateDiscountedAmount(totalAmount, customerData.discount);
+      const balance = calculateCustomerBalance(totalAmount, totalPaidNIS, customerData.discount);
+
       const newCustomer: Omit<Customer, 'id'> = {
         ...customerData,
         animals: processedAnimals,
         payments: processedPayments,
         totalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
         totalPaidNIS,
-        balance: totalAmount - totalPaidNIS,
+        balance,
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
@@ -238,7 +251,11 @@ export const useCustomersStore = defineStore('customers', () => {
       }
       const newTotalPaidNIS = calculateTotalPaidNIS(processedPayments);
       const finalTotalAmount = customerData.totalAmount !== undefined ? customerData.totalAmount : newTotalAmount;
-      const newBalance = finalTotalAmount - newTotalPaidNIS;
+      
+      // Calculate discount-aware amounts
+      const customerDiscount = customerData.discount !== undefined ? customerData.discount : existingCustomer.discount;
+      const discountResult = calculateDiscountedAmount(finalTotalAmount, customerDiscount);
+      const newBalance = calculateCustomerBalance(finalTotalAmount, newTotalPaidNIS, customerDiscount);
 
       const updatePayload: Partial<Omit<Customer, 'id'>> = { ...customerData }; 
       delete (updatePayload as any).id; 
@@ -250,6 +267,8 @@ export const useCustomersStore = defineStore('customers', () => {
         updatePayload.payments = processedPayments;
       }
       updatePayload.totalAmount = finalTotalAmount;
+      updatePayload.totalAmountBeforeDiscount = discountResult.totalAmountBeforeDiscount;
+      updatePayload.finalTotalAmount = discountResult.finalTotalAmount;
       updatePayload.totalPaidNIS = newTotalPaidNIS;
       updatePayload.balance = newBalance;
       updatePayload.updatedAt = Date.now();
@@ -299,7 +318,7 @@ export const useCustomersStore = defineStore('customers', () => {
         totalTransactionNIS: calculateTransactionNISTotal(paymentDetails.parts.map(part => ({...part, id: part.id || crypto.randomUUID()})))
       }];
       const newTotalPaidNIS = calculateTotalPaidNIS(updatedPayments);
-      const newBalance = customer.totalAmount - newTotalPaidNIS;
+      const newBalance = calculateCustomerBalance(customer.totalAmount, newTotalPaidNIS, customer.discount);
       try {
         await firebaseUpdateData(customerId, { 
           payments: updatedPayments, 
@@ -351,11 +370,14 @@ export const useCustomersStore = defineStore('customers', () => {
 
       const updatedAnimals = [...customer.animals, animal];
       const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
-      const newBalance = newTotalAmount - customer.totalPaidNIS;
+      const discountResult = calculateDiscountedAmount(newTotalAmount, customer.discount);
+      const newBalance = calculateCustomerBalance(newTotalAmount, customer.totalPaidNIS, customer.discount);
 
       await firebaseUpdateData(customerId, {
         animals: updatedAnimals,
         totalAmount: newTotalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
         balance: newBalance,
         updatedAt: Date.now()
       });
@@ -388,11 +410,14 @@ export const useCustomersStore = defineStore('customers', () => {
       }
 
       const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
-      const newBalance = newTotalAmount - customer.totalPaidNIS;
+      const discountResult = calculateDiscountedAmount(newTotalAmount, customer.discount);
+      const newBalance = calculateCustomerBalance(newTotalAmount, customer.totalPaidNIS, customer.discount);
 
       await firebaseUpdateData(customerId, {
         animals: updatedAnimals,
         totalAmount: newTotalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
         balance: newBalance,
         updatedAt: Date.now()
       });
@@ -415,11 +440,14 @@ export const useCustomersStore = defineStore('customers', () => {
 
       const updatedAnimals = customer.animals.filter(animal => animal.id !== animalId);
       const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
-      const newBalance = newTotalAmount - customer.totalPaidNIS;
+      const discountResult = calculateDiscountedAmount(newTotalAmount, customer.discount);
+      const newBalance = calculateCustomerBalance(newTotalAmount, customer.totalPaidNIS, customer.discount);
 
       await firebaseUpdateData(customerId, {
         animals: updatedAnimals,
         totalAmount: newTotalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
         balance: newBalance,
         updatedAt: Date.now()
       });
@@ -453,11 +481,64 @@ export const useCustomersStore = defineStore('customers', () => {
       });
 
       const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
-      const newBalance = newTotalAmount - customer.totalPaidNIS;
+      const discountResult = calculateDiscountedAmount(newTotalAmount, customer.discount);
+      const newBalance = calculateCustomerBalance(newTotalAmount, customer.totalPaidNIS, customer.discount);
 
       await firebaseUpdateData(customerId, {
         animals: updatedAnimals,
         totalAmount: newTotalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const updateAnimalDetails = async (payload: { customerId: string; animalId: string; updates: Animal }) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot update animal details.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === payload.customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const animalIndex = customer.animals.findIndex(a => a.id === payload.animalId);
+      if (animalIndex === -1) {
+        throw new Error("Animal not found");
+      }
+
+      const originalAnimal = customer.animals[animalIndex];
+      
+      // Critical Status Check: Prevent status update to 'ملغي' if original status was not 'حي'
+      if (payload.updates.status === 'ملغي' && originalAnimal.status !== 'حي') {
+        throw new Error('لا يمكن إلغاء الأضحية إلا إذا كانت حالتها "حي"');
+      }
+
+      // Sanitize the updates to prevent undefined values in Firebase
+      const sanitizedUpdates = {
+        ...payload.updates,
+        notes: payload.updates.notes || '' // Ensure notes is never undefined
+      };
+
+      const updatedAnimals = [...customer.animals];
+      updatedAnimals[animalIndex] = sanitizedUpdates;
+
+      const newTotalAmount = updatedAnimals.reduce((sum, a) => sum + a.total, 0);
+      const discountResult = calculateDiscountedAmount(newTotalAmount, customer.discount);
+      const newBalance = calculateCustomerBalance(newTotalAmount, customer.totalPaidNIS, customer.discount);
+
+      await firebaseUpdateData(payload.customerId, {
+        animals: updatedAnimals,
+        totalAmount: newTotalAmount,
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
         balance: newBalance,
         updatedAt: Date.now()
       });
@@ -469,7 +550,6 @@ export const useCustomersStore = defineStore('customers', () => {
   const searchCustomers = computed(() => {
     return (query: string) => {
       if (!query.trim()) return storeCustomers.value;
-      
       const searchTerm = query.toLowerCase().trim();
       return storeCustomers.value.filter(customer =>
         customer.name.toLowerCase().includes(searchTerm) ||
@@ -478,11 +558,103 @@ export const useCustomersStore = defineStore('customers', () => {
     };
   });
 
+  // Discount management methods
+  const applyCustomerDiscount = async (customerId: string, discount: number, reason: string, appliedBy: string) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot apply discount.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      if (discount < 0) {
+        throw new Error("Discount amount cannot be negative");
+      }
+
+      if (discount > customer.totalAmount) {
+        throw new Error("Discount cannot exceed total amount");
+      }
+
+      const discountResult = calculateDiscountedAmount(customer.totalAmount, discount);
+      const newBalance = calculateCustomerBalance(customer.totalAmount, customer.totalPaidNIS, discount);
+
+      await firebaseUpdateData(customerId, {
+        discount,
+        discountReason: reason,
+        discountAppliedBy: appliedBy,
+        discountAppliedAt: Date.now(),
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const removeCustomerDiscount = async (customerId: string, reason: string, removedBy: string) => {
+    if (!authStore.userId) {
+      storeError.value = "User not authenticated. Cannot remove discount.";
+      throw new Error("User not authenticated");
+    }
+    
+    try {
+      const customer = storeCustomers.value.find(c => c.id === customerId);
+      if (!customer) {
+        throw new Error("Customer not found");
+      }
+
+      const discountResult = calculateDiscountedAmount(customer.totalAmount, 0);
+      const newBalance = calculateCustomerBalance(customer.totalAmount, customer.totalPaidNIS, 0);
+
+      await firebaseUpdateData(customerId, {
+        discount: 0,
+        discountReason: `إزالة الخصم: ${reason}`,
+        discountAppliedBy: removedBy,
+        discountAppliedAt: Date.now(),
+        totalAmountBeforeDiscount: discountResult.totalAmountBeforeDiscount,
+        finalTotalAmount: discountResult.finalTotalAmount,
+        balance: newBalance,
+        updatedAt: Date.now()
+      });
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  // Add computed getter for all animals across customers
+  const allAnimals = computed(() => {
+    const animals: (Animal & { customerName: string; customerId: string })[] = [];
+    storeCustomers.value.forEach(customer => {
+      customer.animals?.forEach(animal => {
+        animals.push({
+          ...animal,
+          customerName: customer.name,
+          customerId: customer.id
+        });
+      });
+    });
+    
+    // Sort by type first, then by compositeKey
+    return animals.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type.localeCompare(b.type, 'ar');
+      }
+      return a.compositeKey.localeCompare(b.compositeKey, 'ar');
+    });
+  });
+
   return {
     customers: computed(() => storeCustomers.value),
     loading: computed(() => storeLoading.value),
     error: computed(() => storeError.value),
     lastFetchTimestamp: computed(() => lastFetchTimestamp.value), // Expose as computed
+    allAnimals, // Export allAnimals getter
     addCustomer,
     updateCustomer,
     deleteCustomer,
@@ -495,7 +667,11 @@ export const useCustomersStore = defineStore('customers', () => {
     updateCustomerAnimal,
     removeAnimalFromCustomer,
     bulkUpdateCustomerAnimals,
+    updateAnimalDetails,
     searchCustomers,
+    // Discount management methods
+    applyCustomerDiscount,
+    removeCustomerDiscount,
     // Add fetchCustomerById if it's not implicitly covered or needed directly
     fetchCustomerById: async (id: string): Promise<Customer | null> => {
       if (!authStore.userId) {

@@ -94,11 +94,34 @@
       word-break: break-word;
       font-size: 0.9em;
     }
+    .actions-cell {
+      white-space: nowrap;
+      text-align: center;
+      min-width: 100px;
+    }
     .btn-xs {
       padding: 0.2rem 0.4rem;
       font-size: 0.8em;
       margin: 0 2px;
       i { font-size: 0.9em; }
+    }
+    .btn-outline-primary {
+      border: 1px solid #007bff;
+      color: #007bff;
+      background: transparent;
+      &:hover {
+        background-color: #007bff;
+        color: white;
+      }
+    }
+    .btn-outline-danger {
+      border: 1px solid #dc3545;
+      color: #dc3545;
+      background: transparent;
+      &:hover {
+        background-color: #dc3545;
+        color: white;
+      }
     }
   }
   .empty-state {
