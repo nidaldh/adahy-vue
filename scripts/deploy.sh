@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deployment Script for Animal Sales Vue App
-# This script builds and deploys the application to Firebase Hosting
+# This script builds and deploys the application to GitHub Pages
 
 set -e  # Exit on any error
 
@@ -31,24 +31,47 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if Firebase CLI is installed
-check_firebase_cli() {
-    if ! command -v firebase &> /dev/null; then
-        print_error "Firebase CLI is not installed"
-        echo "Install it with: npm install -g firebase-tools"
+# Check if Git is available and repository is initialized
+check_git() {
+    if ! command -v git &> /dev/null; then
+        print_error "Git is not installed"
+        echo "Please install Git to continue"
         exit 1
     fi
-    print_success "Firebase CLI is available"
+    
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        print_error "Not a Git repository"
+        echo "Initialize a Git repository first: git init"
+        exit 1
+    fi
+    
+    print_success "Git is available and repository is initialized"
 }
 
-# Check if user is logged in to Firebase
-check_firebase_auth() {
-    if ! firebase projects:list &> /dev/null; then
-        print_error "Not logged in to Firebase"
-        echo "Run: firebase login"
+# Check if gh CLI is installed (optional)
+check_gh_cli() {
+    if command -v gh &> /dev/null; then
+        print_success "GitHub CLI is available"
+        return 0
+    else
+        print_warning "GitHub CLI not found (optional)"
+        return 1
+    fi
+}
+
+# Check if we have a GitHub remote
+check_github_remote() {
+    if git remote get-url origin | grep -q "github.com"; then
+        print_success "GitHub remote detected"
+        REPO_URL=$(git remote get-url origin)
+        REPO_NAME=$(basename "$REPO_URL" .git)
+        REPO_OWNER=$(basename "$(dirname "$REPO_URL")" | sed 's/.*://')
+        print_status "Repository: $REPO_OWNER/$REPO_NAME"
+    else
+        print_error "No GitHub remote found"
+        echo "Add a GitHub remote: git remote add origin https://github.com/username/repo.git"
         exit 1
     fi
-    print_success "Firebase authentication confirmed"
 }
 
 # Install dependencies
@@ -68,18 +91,33 @@ run_tests() {
     fi
 }
 
-# Build the application
+# Build the application for GitHub Pages
 build_app() {
-    print_status "Building application for production..."
+    print_status "Building application for GitHub Pages..."
     
     # Clean previous build
     rm -rf dist
     
-    # Build with production environment
-    npm run build
+    # Build with production environment and proper base path for GitHub Pages
+    # GitHub Pages serves from /<repo-name>/ path
+    VITE_BASE="/$REPO_NAME/"
+    print_status "Building with base path: $VITE_BASE"
+    
+    # Set base path in vite config or use env variable
+    BASE="$VITE_BASE" npm run build
     
     if [ -d "dist" ]; then
         print_success "Application built successfully"
+        
+        # Create .nojekyll file to prevent Jekyll processing
+        touch dist/.nojekyll
+        print_status "Created .nojekyll file"
+        
+        # Create CNAME file if custom domain is configured
+        if [ ! -z "$CUSTOM_DOMAIN" ]; then
+            echo "$CUSTOM_DOMAIN" > dist/CNAME
+            print_status "Created CNAME file for domain: $CUSTOM_DOMAIN"
+        fi
         
         # Show build size
         du -sh dist
@@ -107,46 +145,128 @@ optimize_build() {
     fi
 }
 
-# Deploy to Firebase Hosting
-deploy_to_firebase() {
-    print_status "Deploying to Firebase Hosting..."
+# Deploy to GitHub Pages
+deploy_to_github_pages() {
+    print_status "Deploying to GitHub Pages..."
     
-    # Deploy hosting only (not database rules for safety)
-    firebase deploy --only hosting
+    # Save current branch
+    CURRENT_BRANCH=$(git branch --show-current)
+    
+    # Create or switch to gh-pages branch
+    if git show-ref --verify --quiet refs/heads/gh-pages; then
+        print_status "Switching to existing gh-pages branch"
+        git checkout gh-pages
+    else
+        print_status "Creating new gh-pages branch"
+        git checkout --orphan gh-pages
+        git rm -rf .
+    fi
+    
+    # Copy build files to gh-pages branch
+    cp -r dist/* .
+    cp dist/.nojekyll . 2>/dev/null || true
+    cp dist/CNAME . 2>/dev/null || true
+    
+    # Add and commit files
+    git add .
+    
+    if git diff --staged --quiet; then
+        print_warning "No changes to deploy"
+        git checkout "$CURRENT_BRANCH"
+        return 0
+    fi
+    
+    COMMIT_MESSAGE="Deploy to GitHub Pages - $(date '+%Y-%m-%d %H:%M:%S')"
+    git commit -m "$COMMIT_MESSAGE"
+    
+    # Push to GitHub
+    print_status "Pushing to GitHub Pages..."
+    git push origin gh-pages --force
     
     if [ $? -eq 0 ]; then
         print_success "Deployment completed successfully!"
         
-        # Get the hosting URL
-        PROJECT_ID=$(firebase use | grep "active project" | cut -d' ' -f4 | tr -d '()')
-        if [ ! -z "$PROJECT_ID" ]; then
-            echo ""
-            print_success "🌐 Your app is live at: https://$PROJECT_ID.web.app"
-            print_success "🌐 Custom domain: https://$PROJECT_ID.firebaseapp.com"
+        # Switch back to original branch
+        git checkout "$CURRENT_BRANCH"
+        
+        # Show deployment URLs
+        echo ""
+        print_success "🌐 Your app will be live at: https://$REPO_OWNER.github.io/$REPO_NAME/"
+        
+        if [ ! -z "$CUSTOM_DOMAIN" ]; then
+            print_success "🌐 Custom domain: https://$CUSTOM_DOMAIN"
         fi
+        
+        print_status "Note: It may take a few minutes for changes to appear on GitHub Pages"
     else
         print_error "Deployment failed"
+        git checkout "$CURRENT_BRANCH"
         exit 1
     fi
 }
 
-# Deploy database rules separately (with confirmation)
-deploy_database_rules() {
+# Create GitHub Actions workflow
+create_github_actions_workflow() {
     echo ""
-    read -p "Do you want to deploy database rules? (y/N): " -n 1 -r
+    read -p "Do you want to create a GitHub Actions workflow for automatic deployment? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_status "Deploying database rules..."
-        firebase deploy --only database
+        print_status "Creating GitHub Actions workflow..."
         
-        if [ $? -eq 0 ]; then
-            print_success "Database rules deployed successfully"
-        else
-            print_error "Database rules deployment failed"
-        fi
+        mkdir -p .github/workflows
+        
+        cat > .github/workflows/deploy.yml << 'EOF'
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests
+      run: npm run test:unit -- --run
+      
+    - name: Build
+      run: npm run build
+      env:
+        BASE: /${{ github.event.repository.name }}/
+        
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./dist
+        force_orphan: true
+EOF
+        
+        print_success "GitHub Actions workflow created at .github/workflows/deploy.yml"
+        print_status "Commit and push this file to enable automatic deployments"
+        
+        # Add workflow to git
+        git add .github/workflows/deploy.yml
+        print_status "Added workflow file to git staging"
     else
-        print_warning "Skipping database rules deployment"
-        echo "To deploy rules later, run: firebase deploy --only database"
+        print_warning "Skipping GitHub Actions workflow creation"
+        echo "You can create it later by running this script again"
     fi
 }
 
@@ -155,38 +275,59 @@ generate_summary() {
     echo ""
     echo "📋 Deployment Summary"
     echo "===================="
-    echo "Project: $(firebase use | grep "active project" | cut -d' ' -f4 | tr -d '()')"
+    echo "Repository: $REPO_OWNER/$REPO_NAME"
     echo "Build size: $(du -sh dist | cut -f1)"
     echo "Deployment time: $(date)"
     echo "Git commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
+    echo "GitHub Pages URL: https://$REPO_OWNER.github.io/$REPO_NAME/"
+    if [ ! -z "$CUSTOM_DOMAIN" ]; then
+        echo "Custom domain: https://$CUSTOM_DOMAIN"
+    fi
     echo ""
     
     print_success "🎉 Deployment completed successfully!"
     echo ""
     echo "📝 Next steps:"
-    echo "1. Test the live application"
-    echo "2. Monitor for any errors in Firebase Console"
-    echo "3. Update DNS records if using custom domain"
-    echo "4. Share the URL with users"
+    echo "1. Check GitHub Pages settings in repository settings"
+    echo "2. Test the live application"
+    echo "3. Set up custom domain in GitHub Pages settings (if needed)"
+    echo "4. Enable GitHub Actions for automatic deployments"
+    echo "5. Share the URL with users"
 }
 
 # Main deployment function
 main() {
-    echo "🚀 Animal Sales Vue App Deployment"
-    echo "=================================="
+    echo "🚀 Animal Sales Vue App Deployment to GitHub Pages"
+    echo "=================================================="
     echo ""
     
-    # Pre-deployment checks
-    check_firebase_cli
-    check_firebase_auth
+    # Configuration (set custom domain if needed)
+    # CUSTOM_DOMAIN="yourdomain.com"  # Uncomment and set your custom domain
     
-    # Show current project
-    CURRENT_PROJECT=$(firebase use | grep "active project" | cut -d' ' -f4 | tr -d '()')
-    print_status "Deploying to project: $CURRENT_PROJECT"
+    # Pre-deployment checks
+    check_git
+    check_gh_cli
+    check_github_remote
+    
+    # Show current repository info
+    print_status "Current branch: $(git branch --show-current)"
+    print_status "Repository: $REPO_OWNER/$REPO_NAME"
+    
+    # Check for uncommitted changes
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        print_warning "You have uncommitted changes"
+        echo ""
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_warning "Please commit your changes first"
+            exit 0
+        fi
+    fi
     
     # Confirm deployment
     echo ""
-    read -p "Continue with deployment? (y/N): " -n 1 -r
+    read -p "Continue with deployment to GitHub Pages? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         print_warning "Deployment cancelled"
@@ -198,8 +339,8 @@ main() {
     run_tests
     build_app
     optimize_build
-    deploy_to_firebase
-    deploy_database_rules
+    deploy_to_github_pages
+    create_github_actions_workflow
     generate_summary
 }
 
